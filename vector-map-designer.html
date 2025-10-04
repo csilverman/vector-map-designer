@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vector Map Designer</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { border: 1px solid black; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let isPanning = false;
+        let lastX, lastY;
+        let scale = 1, translateX = 0, translateY = 0;
+        let paths = []; // Store paths here
+
+        // Handle canvas resizing
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            draw();
+        }
+
+        // Draw function
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            ctx.translate(translateX, translateY);
+            ctx.scale(scale, scale);
+            // Draw grid
+            drawGrid(10);
+            // Draw paths
+            drawPaths();
+            ctx.restore();
+        }
+
+        function drawGrid(interval) {
+            ctx.strokeStyle = '#eee';
+            for (let x = -translateX; x < canvas.width / scale; x += interval) {
+                ctx.beginPath();
+                ctx.moveTo(x, -translateY);
+                ctx.lineTo(x, canvas.height / scale - translateY);
+                ctx.stroke();
+            }
+            for (let y = -translateY; y < canvas.height / scale; y += interval) {
+                ctx.beginPath();
+                ctx.moveTo(-translateX, y);
+                ctx.lineTo(canvas.width / scale - translateX, y);
+                ctx.stroke();
+            }
+        }
+
+        function drawPaths() {
+            // Iterate through paths and draw each
+            paths.forEach(path => {
+                ctx.beginPath();
+                ctx.moveTo(path[0].x, path[0].y);
+                for (let i = 1; i < path.length; i++) {
+                    ctx.lineTo(path[i].x, path[i].y);
+                }
+                ctx.stroke();
+            });
+        }
+
+        // Event listeners for panning
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 0) { // Left button
+                isPanning = true;
+                lastX = e.offsetX;
+                lastY = e.offsetY;
+                canvas.style.cursor = 'grabbing';
+            }
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            isPanning = false;
+            canvas.style.cursor = 'grab';
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (isPanning) {
+                translateX += e.offsetX - lastX;
+                translateY += e.offsetY - lastY;
+                lastX = e.offsetX;
+                lastY = e.offsetY;
+                draw();
+            }
+        });
+
+        // Zoom handling
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomFactor = 1.1;
+            const mouseX = e.offsetX;
+            const mouseY = e.offsetY;
+            if (e.deltaY < 0) {
+                scale *= zoomFactor;
+            } else {
+                scale /= zoomFactor;
+            }
+            translateX = mouseX - (mouseX - translateX) * (scale / (scale / zoomFactor));
+            translateY = mouseY - (mouseY - translateY) * (scale / (scale / zoomFactor));
+            draw();
+        });
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+    </script>
+</body>
+</html>

@@ -396,6 +396,7 @@
                 <button class="action-btn" onclick="undo()">⟲ Undo</button>
                 <button class="action-btn" onclick="exportSVG()">📐 Export SVG</button>
                 <button class="action-btn" onclick="exportJSON()">📄 Export JSON</button>
+                <button class="action-btn" onclick="importJSON()">📥 Import JSON</button>
                 <button class="action-btn" onclick="exportMap()">💾 Export PNG</button>
                 <button class="action-btn danger" onclick="clearCanvas()">🗑️ Clear All</button>
             </div>
@@ -1519,6 +1520,169 @@
                 URL.revokeObjectURL(url);
             }
     
+    
+    function importJSON() {
+        // Trigger the hidden file input
+        document.getElementById('jsonFileInput').click();
+    }
+    
+    function handleFileImport(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+    
+        // Check if it's a JSON file
+        if (!file.name.endsWith('.json')) {
+            alert('Please select a valid JSON file');
+            event.target.value = ''; // Reset input
+            return;
+        }
+    
+        const reader = new FileReader();
+        
+        reader.onload = function(e) {
+            try {
+                const importedData = JSON.parse(e.target.result);
+                
+                // Validate the imported data structure
+                if (!importedData || typeof importedData !== 'object') {
+                    throw new Error('Invalid JSON structure');
+                }
+    
+                // Check if it has the expected map data structure
+                const requiredFields = ['highways', 'roads', 'rivers', 'waterBodies', 'borders', 'cities'];
+                const hasValidStructure = requiredFields.every(field => 
+                    Array.isArray(importedData[field])
+                );
+    
+                if (!hasValidStructure) {
+                    throw new Error('JSON file does not contain valid map data');
+                }
+    
+                // Confirm before importing
+                const totalItems = 
+                    importedData.highways.length +
+                    importedData.roads.length +
+                    importedData.rivers.length +
+                    importedData.waterBodies.length +
+                    importedData.borders.length +
+                    importedData.cities.length;
+    
+                const confirmMessage = `Import map with:\n` +
+                    `• ${importedData.highways.length} highways\n` +
+                    `• ${importedData.roads.length} roads\n` +
+                    `• ${importedData.rivers.length} rivers\n` +
+                    `• ${importedData.waterBodies.length} water bodies\n` +
+                    `• ${importedData.borders.length} borders\n` +
+                    `• ${importedData.cities.length} cities\n\n` +
+                    `This will replace your current map. Continue?`;
+    
+                if (!confirm(confirmMessage)) {
+                    event.target.value = ''; // Reset input
+                    return;
+                }
+    
+                // Update nextId to avoid ID conflicts
+                let maxId = 0;
+                [...importedData.highways, ...importedData.roads, ...importedData.rivers, 
+                 ...importedData.waterBodies, ...importedData.borders, ...importedData.cities].forEach(item => {
+                    if (item.id && item.id > maxId) {
+                        maxId = item.id;
+                    }
+                });
+                nextId = maxId + 1;
+    
+                // Import the data
+                mapData = importedData;
+                
+                // Clear any active editing states
+                isDrawingPath = false;
+                currentPathPoints = [];
+                selectedPath = null;
+                isEditMode = false;
+                editingPath = null;
+                extendingFromVertex = null;
+                draggingVertex = null;
+                dragVertexIndex = -1;
+                dragPath = null;
+                hoveredVertex = null;
+                hoveredPath = null;
+                hoveredSegment = null;
+                
+                // Hide any open panels
+                document.getElementById('selectedPathInfo').style.display = 'none';
+                document.getElementById('editModeControls').style.display = 'none';
+                document.getElementById('editModeBanner').classList.remove('active');
+                
+                // Save to history and redraw
+                history = [];
+                saveToHistory();
+                updateDrawingStatus('Map imported successfully');
+                redrawCanvas();
+                
+                // Center and zoom to fit the imported map
+                setTimeout(() => {
+                    fitMapToView();
+                }, 100);
+    
+                alert('Map imported successfully!');
+    
+            } catch (error) {
+                console.error('Import error:', error);
+                alert('Error importing JSON file: ' + error.message + '\n\nPlease make sure you are importing a valid map data file.');
+            }
+            
+            // Reset the file input so the same file can be imported again
+            event.target.value = '';
+        };
+    
+        reader.onerror = function() {
+            alert('Error reading file. Please try again.');
+            event.target.value = '';
+        };
+    
+        reader.readAsText(file);
+    }
+    
+    function fitMapToView() {
+        const bounds = calculateMapBounds();
+        
+        // Check if map is empty
+        if (bounds.minX === Infinity) {
+            resetZoom();
+            return;
+        }
+    
+        const mapWidth = bounds.maxX - bounds.minX;
+        const mapHeight = bounds.maxY - bounds.minY;
+        
+        if (mapWidth === 0 || mapHeight === 0) {
+            resetZoom();
+            return;
+        }
+    
+        // Calculate zoom to fit
+        const padding = 50; // pixels of padding
+        const availableWidth = canvas.width - padding * 2;
+        const availableHeight = canvas.height - padding * 2;
+        
+        const zoomX = availableWidth / (mapWidth * baseScale);
+        const zoomY = availableHeight / (mapHeight * baseScale);
+        
+        zoomLevel = Math.min(zoomX, zoomY, 5); // Cap at 5x zoom
+        
+        // Calculate center offset
+        const mapCenterX = (bounds.minX + bounds.maxX) / 2;
+        const mapCenterY = (bounds.minY + bounds.maxY) / 2;
+        
+        viewOffsetX = canvas.width / 2 - mapCenterX * baseScale * zoomLevel;
+        viewOffsetY = canvas.height / 2 - mapCenterY * baseScale * zoomLevel;
+        
+        updateZoomDisplay();
+        redrawCanvas();
+    }
+    
+    
+    
             function redrawCanvas() {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 ctx.fillStyle = '#f8f9fa';
@@ -2029,6 +2193,6 @@
             }
         </script>
 
-
+    <input type="file" id="jsonFileInput" accept="application/json,.json" style="display: none;" onchange="handleFileImport(event)">
         </body>
         </html>

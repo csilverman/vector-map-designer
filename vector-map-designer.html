@@ -1161,6 +1161,7 @@
 
 
 
+        // Polygon Union with Weiler-Atherton Algorithm
         function performUnion(secondPolygon) {
             if (!firstUnionPolygon || !secondPolygon) return;
             if (firstUnionPolygon.id === secondPolygon.id) {
@@ -1172,83 +1173,14 @@
                 return;
             }
         
-            // Combine all points from both polygons
-            const combinedPoints = [...firstUnionPolygon.points, ...secondPolygon.points];
-            
-            // Calculate the convex hull
-            const unionPoints = convexHull(combinedPoints);
+            console.log('Starting union...');
+            console.log('First polygon:', firstUnionPolygon.points.length, 'points');
+            console.log('Second polygon:', secondPolygon.points.length, 'points');
         
-            // Debug: Log the results
-            console.log('First polygon points:', firstUnionPolygon.points.length);
-            console.log('Second polygon points:', secondPolygon.points.length);
-            console.log('Union points:', unionPoints.length);
+            // Perform Weiler-Atherton polygon union
+            const unionPoints = weilerAthertonUnion(firstUnionPolygon.points, secondPolygon.points);
         
-            // Check if we got valid results
-            if (unionPoints.length < 3) {
-                alert('Union failed - not enough points in result');
-                cancelUnion();
-                return;
-            }
-        
-            // Find the collection for this type
-            const collection = getCollectionForType(firstUnionPolygon.type);
-            
-            // Find the index of the first polygon in the collection
-            const firstIndex = mapData[collection].findIndex(p => p.id === firstUnionPolygon.id);
-            
-            if (firstIndex === -1) {
-                alert('Error: Could not find first polygon in collection');
-                cancelUnion();
-                return;
-            }
-        
-            // Update the first polygon with the union result
-            mapData[collection][firstIndex].points = unionPoints;
-            firstUnionPolygon.points = unionPoints;
-        
-            // Remove the second polygon from the collection
-            const secondIndex = mapData[collection].findIndex(p => p.id === secondPolygon.id);
-            if (secondIndex !== -1) {
-                mapData[collection].splice(secondIndex, 1);
-            }
-        
-            // Exit union mode
-            const mergedPolygon = mapData[collection][firstIndex >= secondIndex ? firstIndex : firstIndex];
-            
-            isUnionMode = false;
-            firstUnionPolygon = null;
-            document.getElementById('unionModeBanner').classList.remove('active');
-            document.getElementById('unionModeControls').style.display = 'none';
-            
-            // Select the merged polygon
-            selectedPath = mergedPolygon;
-            showPathInfo(selectedPath);
-            
-            saveToHistory();
-            updateDrawingStatus('Ready');
-            redrawCanvas();
-            
-            alert(`Polygons merged successfully! New polygon has ${unionPoints.length} vertices.`);
-        }
-        
-        // Polygon Union with Intersection Detection
-        function performUnion(secondPolygon) {
-            if (!firstUnionPolygon || !secondPolygon) return;
-            if (firstUnionPolygon.id === secondPolygon.id) {
-                alert('Cannot union a polygon with itself');
-                return;
-            }
-            if (firstUnionPolygon.type !== secondPolygon.type) {
-                alert('Can only union polygons of the same type');
-                return;
-            }
-        
-            // Perform polygon union with intersection detection
-            const unionPoints = polygonUnion(firstUnionPolygon.points, secondPolygon.points);
-        
-            console.log('First polygon points:', firstUnionPolygon.points.length);
-            console.log('Second polygon points:', secondPolygon.points.length);
-            console.log('Union points:', unionPoints.length);
+            console.log('Union result:', unionPoints.length, 'points');
         
             if (unionPoints.length < 3) {
                 alert('Union failed - not enough points in result');
@@ -1273,7 +1205,7 @@
                 mapData[collection].splice(secondIndex, 1);
             }
         
-            const mergedPolygon = mapData[collection][firstIndex >= secondIndex ? firstIndex : firstIndex];
+            const mergedPolygon = mapData[collection][firstIndex];
             
             isUnionMode = false;
             firstUnionPolygon = null;
@@ -1287,88 +1219,154 @@
             updateDrawingStatus('Ready');
             redrawCanvas();
             
-            alert(`Polygons merged with ${unionPoints.length} vertices (including intersection points).`);
+            alert(`Polygons merged with ${unionPoints.length} vertices.`);
+        }
+        
+
+        
+        // Build vertex list with intersections
+        function buildVertexList(poly, otherPoly, isSubject) {
+            const vertices = [];
+            
+            for (let i = 0; i < poly.length; i++) {
+                const current = poly[i];
+                const next = poly[(i + 1) % poly.length];
+                
+                // Add current vertex
+                vertices.push({
+                    point: { x: current.x, y: current.y },
+                    isIntersection: false,
+                    isEntry: false,
+                    neighbor: null,
+                    visited: false,
+                    index: i
+                });
+                
+                // Find intersections on this edge
+                const intersections = [];
+                
+                for (let j = 0; j < otherPoly.length; j++) {
+                    const otherCurrent = otherPoly[j];
+                    const otherNext = otherPoly[(j + 1) % otherPoly.length];
+                    
+                    const intersection = lineSegmentIntersection(current, next, otherCurrent, otherNext);
+                    
+                    if (intersection && intersection.t1 > 0.0001 && intersection.t1 < 0.9999) {
+                        intersections.push({
+                            point: intersection.point,
+                            t: intersection.t1,
+                            otherEdge: j
+                        });
+                    }
+                }
+                
+                // Sort intersections by distance along edge
+                intersections.sort((a, b) => a.t - b.t);
+                
+                // Add intersection vertices
+                for (const int of intersections) {
+                    // Determine if this is an entry or exit point
+                    const edgeVector = { x: next.x - current.x, y: next.y - current.y };
+                    const otherEdgeStart = otherPoly[int.otherEdge];
+                    const otherEdgeEnd = otherPoly[(int.otherEdge + 1) % otherPoly.length];
+                    const otherEdgeVector = { 
+                        x: otherEdgeEnd.x - otherEdgeStart.x, 
+                        y: otherEdgeEnd.y - otherEdgeStart.y 
+                    };
+                    
+                    // Cross product to determine entry/exit
+                    const cross = edgeVector.x * otherEdgeVector.y - edgeVector.y * otherEdgeVector.x;
+                    const isEntry = isSubject ? cross < 0 : cross > 0;
+                    
+                    vertices.push({
+                        point: int.point,
+                        isIntersection: true,
+                        isEntry: isEntry,
+                        neighbor: null,
+                        visited: false,
+                        otherEdge: int.otherEdge,
+                        t: int.t
+                    });
+                }
+            }
+            
+            return vertices;
+        }
+        
+        // Link corresponding intersection vertices
+        function linkIntersections(subjectVertices, clipVertices) {
+            const subjectIntersections = subjectVertices.filter(v => v.isIntersection);
+            const clipIntersections = clipVertices.filter(v => v.isIntersection);
+            
+            for (const sv of subjectIntersections) {
+                for (const cv of clipIntersections) {
+                    const dx = sv.point.x - cv.point.x;
+                    const dy = sv.point.y - cv.point.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (dist < 0.0001) {
+                        sv.neighbor = cv;
+                        cv.neighbor = sv;
+                        break;
+                    }
+                }
+            }
         }
         
 
 
-
-
-
-        // Main polygon union function
-        function polygonUnion(poly1, poly2) {
+        function weilerAthertonUnion(subject, clip) {
             // Find all intersection points
-            const intersections = findAllIntersections(poly1, poly2);
+            const intersections = findAllIntersections(subject, clip);
             
-            // Create combined point list with intersections
+            console.log('Intersections found:', intersections.length);
+            
+            if (intersections.length === 0) {
+                // No intersections - check containment
+                if (isPointInPolygon(subject[0], clip)) {
+                    return clip; // Subject inside clip
+                } else if (isPointInPolygon(clip[0], subject)) {
+                    return subject; // Clip inside subject
+                } else {
+                    return convexHull([...subject, ...clip]); // Separate polygons
+                }
+            }
+            
+            // Build combined vertex list with intersections
             const allPoints = [];
             
-            // Add poly1 points with their intersections
-            for (let i = 0; i < poly1.length; i++) {
-                allPoints.push({
-                    point: poly1[i],
-                    fromPoly: 1,
-                    originalIndex: i,
-                    isIntersection: false
-                });
-                
-                // Add intersections on this edge
-                const nextI = (i + 1) % poly1.length;
-                const edgeIntersections = intersections.filter(int => 
-                    int.edge1Start === i && int.edge1End === nextI
-                ).sort((a, b) => a.t1 - b.t1);
-                
-                for (const int of edgeIntersections) {
-                    allPoints.push({
-                        point: int.point,
-                        fromPoly: 1,
-                        isIntersection: true,
-                        intersectionData: int
-                    });
+            // Add subject polygon points
+            for (let i = 0; i < subject.length; i++) {
+                const p = subject[i];
+                // Only add if outside clip polygon (for union we want outer boundary)
+                if (!isPointInPolygon(p, clip)) {
+                    allPoints.push(p);
                 }
             }
             
-            // Add poly2 points with their intersections
-            for (let i = 0; i < poly2.length; i++) {
-                const nextI = (i + 1) % poly2.length;
-                const edgeIntersections = intersections.filter(int => 
-                    int.edge2Start === i && int.edge2End === nextI
-                ).sort((a, b) => a.t2 - b.t2);
-                
-                for (const int of edgeIntersections) {
-                    allPoints.push({
-                        point: int.point,
-                        fromPoly: 2,
-                        isIntersection: true,
-                        intersectionData: int
-                    });
-                }
-                
-                allPoints.push({
-                    point: poly2[i],
-                    fromPoly: 2,
-                    originalIndex: i,
-                    isIntersection: false
-                });
-            }
-            
-            // Build the union outline by taking the convex hull of all points including intersections
-            const uniquePoints = [];
-            const seen = new Set();
-            
-            for (const item of allPoints) {
-                const key = `${item.point.x.toFixed(6)},${item.point.y.toFixed(6)}`;
-                if (!seen.has(key)) {
-                    seen.add(key);
-                    uniquePoints.push(item.point);
+            // Add clip polygon points
+            for (let i = 0; i < clip.length; i++) {
+                const p = clip[i];
+                // Only add if outside subject polygon
+                if (!isPointInPolygon(p, subject)) {
+                    allPoints.push(p);
                 }
             }
             
-            // Use convex hull to get the outer boundary
-            return convexHull(uniquePoints);
+            // Add all intersection points
+            for (const int of intersections) {
+                allPoints.push(int.point);
+            }
+            
+            if (allPoints.length < 3) {
+                console.warn('Not enough points for union, falling back to convex hull');
+                return convexHull([...subject, ...clip]);
+            }
+            
+            // Return convex hull of all outer points and intersections
+            return convexHull(allPoints);
         }
         
-        // Find all intersection points between two polygons
         function findAllIntersections(poly1, poly2) {
             const intersections = [];
             
@@ -1380,17 +1378,13 @@
                     const p2Start = poly2[j];
                     const p2End = poly2[(j + 1) % poly2.length];
                     
-                    const intersection = lineIntersection(p1Start, p1End, p2Start, p2End);
+                    const intersection = lineSegmentIntersection(p1Start, p1End, p2Start, p2End);
                     
-                    if (intersection) {
+                    if (intersection && intersection.t1 > 0.0001 && intersection.t1 < 0.9999) {
                         intersections.push({
                             point: intersection.point,
-                            edge1Start: i,
-                            edge1End: (i + 1) % poly1.length,
-                            edge2Start: j,
-                            edge2End: (j + 1) % poly2.length,
-                            t1: intersection.t1,
-                            t2: intersection.t2
+                            edge1: i,
+                            edge2: j
                         });
                     }
                 }
@@ -1398,9 +1392,11 @@
             
             return intersections;
         }
+
+
         
-        // Line segment intersection detection
-        function lineIntersection(p1, p2, p3, p4) {
+        // Line segment intersection
+        function lineSegmentIntersection(p1, p2, p3, p4) {
             const x1 = p1.x, y1 = p1.y;
             const x2 = p2.x, y2 = p2.y;
             const x3 = p3.x, y3 = p3.y;
@@ -1409,13 +1405,12 @@
             const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
             
             if (Math.abs(denom) < 1e-10) {
-                return null; // Lines are parallel
+                return null;
             }
             
             const t1 = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
             const t2 = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
             
-            // Check if intersection is within both line segments
             if (t1 >= 0 && t1 <= 1 && t2 >= 0 && t2 <= 1) {
                 return {
                     point: {
@@ -1430,7 +1425,21 @@
             return null;
         }
         
-        // Convex Hull algorithm (Graham Scan)
+        // Check if point is inside polygon
+        function isPointInPolygon(point, polygon) {
+            let inside = false;
+            for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+                const xi = polygon[i].x, yi = polygon[i].y;
+                const xj = polygon[j].x, yj = polygon[j].y;
+                
+                const intersect = ((yi > point.y) !== (yj > point.y))
+                    && (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi);
+                if (intersect) inside = !inside;
+            }
+            return inside;
+        }
+        
+        // Convex Hull (fallback)
         function convexHull(points) {
             if (points.length < 3) return points;
         
@@ -1475,27 +1484,10 @@
             return hull;
         }
         
-        
-        
-        
-        
-        
-        
-        
-        
-        
         function crossProduct(o, a, b) {
             return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
         }
         
-        function crossProduct(o, a, b) {
-            return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-        }
-        
-        
-        function crossProduct(o, a, b) {
-            return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-        }
         
         
         function distanceToSegment(point, segStart, segEnd) {
@@ -1538,6 +1530,645 @@
             document.getElementById('selectedPoints').textContent = path.points.length;
             document.getElementById('selectedPathInfo').style.display = 'block';
         }
+
+
+        // Union mode functions
+        function startUnion() {
+            if (!selectedPath) return;
+            if (selectedPath.type !== 'water' && selectedPath.type !== 'border') {
+                alert('Union only works with water bodies and borders');
+                return;
+            }
+        
+            isUnionMode = true;
+            firstUnionPolygon = selectedPath;
+            document.getElementById('unionModeBanner').classList.add('active');
+            document.getElementById('unionModeControls').style.display = 'block';
+            document.getElementById('selectedPathInfo').style.display = 'none';
+            document.getElementById('firstPolygonName').textContent = selectedPath.type.charAt(0).toUpperCase() + selectedPath.type.slice(1) + ' #' + selectedPath.id;
+            updateDrawingStatus('Select second polygon to union');
+            redrawCanvas();
+        }
+        
+        function cancelUnion() {
+            isUnionMode = false;
+            firstUnionPolygon = null;
+            selectedPath = null;
+            document.getElementById('unionModeBanner').classList.remove('active');
+            document.getElementById('unionModeControls').style.display = 'none';
+            document.getElementById('selectedPathInfo').style.display = 'none';
+            updateDrawingStatus('Ready');
+            redrawCanvas();
+        }
+        
+        // Weiler-Atherton Union Algorithm
+        function performUnion(secondPolygon) {
+            if (!firstUnionPolygon || !secondPolygon) return;
+            if (firstUnionPolygon.id === secondPolygon.id) {
+                alert('Cannot union a polygon with itself');
+                return;
+            }
+            if (firstUnionPolygon.type !== secondPolygon.type) {
+                alert('Can only union polygons of the same type');
+                return;
+            }
+        
+            console.log('Starting union...');
+            console.log('First polygon:', firstUnionPolygon.points.length, 'points');
+            console.log('Second polygon:', secondPolygon.points.length, 'points');
+        
+            // Perform Weiler-Atherton polygon union
+            const unionPoints = weilerAthertonUnion(firstUnionPolygon.points, secondPolygon.points);
+        
+            console.log('Union result:', unionPoints.length, 'points');
+        
+            if (unionPoints.length < 3) {
+                alert('Union failed - not enough points in result');
+                cancelUnion();
+                return;
+            }
+        
+            const collection = getCollectionForType(firstUnionPolygon.type);
+            const firstIndex = mapData[collection].findIndex(p => p.id === firstUnionPolygon.id);
+            
+            if (firstIndex === -1) {
+                alert('Error: Could not find first polygon in collection');
+                cancelUnion();
+                return;
+            }
+        
+            mapData[collection][firstIndex].points = unionPoints;
+            firstUnionPolygon.points = unionPoints;
+        
+            const secondIndex = mapData[collection].findIndex(p => p.id === secondPolygon.id);
+            if (secondIndex !== -1) {
+                mapData[collection].splice(secondIndex, 1);
+            }
+        
+            const mergedPolygon = mapData[collection][firstIndex];
+            
+            isUnionMode = false;
+            firstUnionPolygon = null;
+            document.getElementById('unionModeBanner').classList.remove('active');
+            document.getElementById('unionModeControls').style.display = 'none';
+            
+            selectedPath = mergedPolygon;
+            showPathInfo(selectedPath);
+            
+            saveToHistory();
+            updateDrawingStatus('Ready');
+            redrawCanvas();
+            
+            alert(`Polygons merged with ${unionPoints.length} vertices.`);
+        }
+        
+        // start
+        
+        function weilerAthertonUnion(subject, clip) {
+            // Use Greiner-Hormann algorithm instead
+            return greinerHormannUnion(subject, clip);
+        }
+        
+        function greinerHormannUnion(subject, clip) {
+            // Find all intersection points
+            const intersections = findAllIntersections(subject, clip);
+            
+            console.log('Intersections found:', intersections.length);
+            
+            if (intersections.length === 0) {
+                if (isPointInPolygon(subject[0], clip)) {
+                    return clip;
+                } else if (isPointInPolygon(clip[0], subject)) {
+                    return subject;
+                } else {
+                    return convexHull([...subject, ...clip]);
+                }
+            }
+            
+            // Create vertex lists with intersections inserted
+            const subjectList = createVertexList(subject, intersections, true, clip);
+            const clipList = createVertexList(clip, intersections, false, subject);
+            
+            // Link intersection vertices between the two lists
+            linkIntersectionVertices(subjectList, clipList);
+            
+            // Find starting point (must be outside for union)
+            let current = findStartVertex(subjectList, clipList, true);
+            
+            if (!current) {
+                console.warn('No start vertex found');
+                return convexHull([...subject, ...clip]);
+            }
+            
+            // Trace the union boundary
+            const result = [];
+            const startVertex = current;
+            let currentList = subjectList.includes(current) ? subjectList : clipList;
+            
+            let iterations = 0;
+            const maxIterations = (subjectList.length + clipList.length) * 2;
+            
+            do {
+                iterations++;
+                if (iterations > maxIterations) break;
+                
+                result.push({ x: current.x, y: current.y });
+                
+                // Mark as visited
+                current.visited = true;
+                if (current.neighbor) current.neighbor.visited = true;
+                
+                // Determine next vertex
+                if (current.isIntersection) {
+                    // At intersection: for union, take the path that goes outside
+                    const nextInCurrent = getNextVertex(current, currentList);
+                    
+                    // Check if we should switch polygons
+                    if (current.neighbor && !nextInCurrent.isIntersection && nextInCurrent.inside) {
+                        // Next vertex on current path is inside, switch to other polygon
+                        current = current.neighbor;
+                        currentList = clipList.includes(current) ? clipList : subjectList;
+                    }
+                }
+                
+                // Move to next vertex
+                current = getNextVertex(current, currentList);
+                
+            } while (current !== startVertex && iterations < maxIterations);
+            
+            if (result.length < 3) {
+                return convexHull([...subject, ...clip]);
+            }
+            
+            return result;
+        }
+        
+        function createVertexList(polygon, intersections, isSubject, otherPolygon) {
+            const vertices = [];
+            
+            for (let i = 0; i < polygon.length; i++) {
+                const p = polygon[i];
+                const next = polygon[(i + 1) % polygon.length];
+                
+                // Add original vertex
+                const vertex = {
+                    x: p.x,
+                    y: p.y,
+                    isIntersection: false,
+                    inside: isPointInPolygon(p, otherPolygon),
+                    visited: false,
+                    neighbor: null,
+                    next: null,
+                    prev: null,
+                    alpha: 0 // position along edge [0-1]
+                };
+                vertices.push(vertex);
+                
+                // Find intersections on this edge
+                const edgeIntersections = [];
+                for (const int of intersections) {
+                    const edgeIndex = isSubject ? int.edge1 : int.edge2;
+                    if (edgeIndex === i) {
+                        // Calculate alpha (position along edge)
+                        const dx = next.x - p.x;
+                        const dy = next.y - p.y;
+                        const len = Math.sqrt(dx * dx + dy * dy);
+                        const dist = Math.sqrt(
+                            (int.point.x - p.x) ** 2 + (int.point.y - p.y) ** 2
+                        );
+                        const alpha = len > 0 ? dist / len : 0;
+                        
+                        edgeIntersections.push({
+                            point: int.point,
+                            alpha: alpha,
+                            edge1: int.edge1,
+                            edge2: int.edge2
+                        });
+                    }
+                }
+                
+                // Sort intersections by alpha
+                edgeIntersections.sort((a, b) => a.alpha - b.alpha);
+                
+                // Add intersection vertices
+                for (const int of edgeIntersections) {
+                    const intVertex = {
+                        x: int.point.x,
+                        y: int.point.y,
+                        isIntersection: true,
+                        inside: false, // Intersections are on boundary
+                        visited: false,
+                        neighbor: null,
+                        next: null,
+                        prev: null,
+                        alpha: int.alpha,
+                        edge1: int.edge1,
+                        edge2: int.edge2
+                    };
+                    vertices.push(intVertex);
+                }
+            }
+            
+            // Link vertices in circular list
+            for (let i = 0; i < vertices.length; i++) {
+                vertices[i].next = vertices[(i + 1) % vertices.length];
+                vertices[i].prev = vertices[(i - 1 + vertices.length) % vertices.length];
+            }
+            
+            return vertices;
+        }
+        
+        function linkIntersectionVertices(subjectList, clipList) {
+            const subjectIntersections = subjectList.filter(v => v.isIntersection);
+            const clipIntersections = clipList.filter(v => v.isIntersection);
+            
+            for (const sv of subjectIntersections) {
+                for (const cv of clipIntersections) {
+                    const dx = sv.x - cv.x;
+                    const dy = sv.y - cv.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (dist < 0.0001) {
+                        sv.neighbor = cv;
+                        cv.neighbor = sv;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        function findStartVertex(subjectList, clipList, forUnion) {
+            // For union, find a vertex that's outside the other polygon
+            // For intersection, find a vertex that's inside the other polygon
+            
+            for (const v of subjectList) {
+                if (!v.isIntersection && !v.inside && forUnion) {
+                    return v;
+                }
+            }
+            
+            for (const v of clipList) {
+                if (!v.isIntersection && !v.inside && forUnion) {
+                    return v;
+                }
+            }
+            
+            // Fallback to first vertex
+            return subjectList[0];
+        }
+        
+        function getNextVertex(current, list) {
+            return current.next || list[(list.indexOf(current) + 1) % list.length];
+        }
+        
+        function findAllIntersections(poly1, poly2) {
+            const intersections = [];
+            
+            for (let i = 0; i < poly1.length; i++) {
+                const p1Start = poly1[i];
+                const p1End = poly1[(i + 1) % poly1.length];
+                
+                for (let j = 0; j < poly2.length; j++) {
+                    const p2Start = poly2[j];
+                    const p2End = poly2[(j + 1) % poly2.length];
+                    
+                    const intersection = lineSegmentIntersection(p1Start, p1End, p2Start, p2End);
+                    
+                    if (intersection && intersection.t1 > 0.0001 && intersection.t1 < 0.9999) {
+                        intersections.push({
+                            point: intersection.point,
+                            edge1: i,
+                            edge2: j
+                        });
+                    }
+                }
+            }
+            
+            return intersections;
+        }
+        
+        
+        // end
+        
+        function insertIntersections(polygon, intersections, isFirst) {
+            const result = [];
+            
+            for (let i = 0; i < polygon.length; i++) {
+                // Add the original vertex
+                result.push({
+                    point: { x: polygon[i].x, y: polygon[i].y },
+                    isIntersection: false,
+                    visited: false,
+                    inside: false,
+                    neighbor: null
+                });
+                
+                // Find intersections on the edge from i to i+1
+                const edgeIntersections = intersections.filter(int => 
+                    (isFirst && int.edge1 === i) || (!isFirst && int.edge2 === i)
+                );
+                
+                // Sort by distance along the edge
+                edgeIntersections.sort((a, b) => {
+                    const p1 = polygon[i];
+                    const p2 = polygon[(i + 1) % polygon.length];
+                    const distA = Math.hypot(a.point.x - p1.x, a.point.y - p1.y);
+                    const distB = Math.hypot(b.point.x - p1.x, b.point.y - p1.y);
+                    return distA - distB;
+                });
+                
+                // Add intersection points
+                for (const int of edgeIntersections) {
+                    const intVertex = {
+                        point: { x: int.point.x, y: int.point.y },
+                        isIntersection: true,
+                        visited: false,
+                        inside: false,
+                        neighbor: null,
+                        intersectionId: `${int.edge1}-${int.edge2}` // To link with neighbor
+                    };
+                    result.push(intVertex);
+                }
+            }
+            
+            return result;
+        }
+        
+        function markVertices(vertices, otherPolygon) {
+            for (const v of vertices) {
+                if (!v.isIntersection) {
+                    v.inside = isPointInPolygon(v.point, otherPolygon);
+                }
+            }
+        }
+        
+        function findAllIntersections(poly1, poly2) {
+            const intersections = [];
+            
+            for (let i = 0; i < poly1.length; i++) {
+                const p1Start = poly1[i];
+                const p1End = poly1[(i + 1) % poly1.length];
+                
+                for (let j = 0; j < poly2.length; j++) {
+                    const p2Start = poly2[j];
+                    const p2End = poly2[(j + 1) % poly2.length];
+                    
+                    const intersection = lineSegmentIntersection(p1Start, p1End, p2Start, p2End);
+                    
+                    if (intersection && intersection.t1 > 0.0001 && intersection.t1 < 0.9999) {
+                        intersections.push({
+                            point: intersection.point,
+                            edge1: i,
+                            edge2: j
+                        });
+                    }
+                }
+            }
+            
+            return intersections;
+        }
+
+        function linkIntersectionNeighbors(subjectVertices, clipVertices) {
+            const subjectIntersections = subjectVertices.filter(v => v.isIntersection);
+            const clipIntersections = clipVertices.filter(v => v.isIntersection);
+            
+            for (const sv of subjectIntersections) {
+                for (const cv of clipIntersections) {
+                    if (sv.intersectionId && cv.intersectionId) {
+                        const [s1, c1] = sv.intersectionId.split('-').map(Number);
+                        const [s2, c2] = cv.intersectionId.split('-').map(Number);
+                        
+                        if (s1 === s2 && c1 === c2) {
+                            sv.neighbor = cv;
+                            cv.neighbor = sv;
+                            break;
+                        }
+                    }
+                }
+            }
+        }        
+        function buildVertexList(poly, otherPoly, isSubject) {
+            const vertices = [];
+            
+            for (let i = 0; i < poly.length; i++) {
+                const current = poly[i];
+                const next = poly[(i + 1) % poly.length];
+                
+                vertices.push({
+                    point: { x: current.x, y: current.y },
+                    isIntersection: false,
+                    isEntry: false,
+                    neighbor: null,
+                    visited: false,
+                    index: i
+                });
+                
+                const intersections = [];
+                
+                for (let j = 0; j < otherPoly.length; j++) {
+                    const otherCurrent = otherPoly[j];
+                    const otherNext = otherPoly[(j + 1) % otherPoly.length];
+                    
+                    const intersection = lineSegmentIntersection(current, next, otherCurrent, otherNext);
+                    
+                    if (intersection && intersection.t1 > 0.0001 && intersection.t1 < 0.9999) {
+                        intersections.push({
+                            point: intersection.point,
+                            t: intersection.t1,
+                            otherEdge: j
+                        });
+                    }
+                }
+                
+                intersections.sort((a, b) => a.t - b.t);
+                
+                for (const int of intersections) {
+                    const edgeVector = { x: next.x - current.x, y: next.y - current.y };
+                    const otherEdgeStart = otherPoly[int.otherEdge];
+                    const otherEdgeEnd = otherPoly[(int.otherEdge + 1) % otherPoly.length];
+                    const otherEdgeVector = { 
+                        x: otherEdgeEnd.x - otherEdgeStart.x, 
+                        y: otherEdgeEnd.y - otherEdgeStart.y 
+                    };
+                    
+                    const cross = edgeVector.x * otherEdgeVector.y - edgeVector.y * otherEdgeVector.x;
+                    const isEntry = isSubject ? cross < 0 : cross > 0;
+                    
+                    vertices.push({
+                        point: int.point,
+                        isIntersection: true,
+                        isEntry: isEntry,
+                        neighbor: null,
+                        visited: false,
+                        otherEdge: int.otherEdge,
+                        t: int.t
+                    });
+                }
+            }
+            
+            return vertices;
+        }
+        
+        function linkIntersections(subjectVertices, clipVertices) {
+            const subjectIntersections = subjectVertices.filter(v => v.isIntersection);
+            const clipIntersections = clipVertices.filter(v => v.isIntersection);
+            
+            for (const sv of subjectIntersections) {
+                for (const cv of clipIntersections) {
+                    const dx = sv.point.x - cv.point.x;
+                    const dy = sv.point.y - cv.point.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (dist < 0.0001) {
+                        sv.neighbor = cv;
+                        cv.neighbor = sv;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        function traceUnion(subjectVertices, clipVertices) {
+            let current = null;
+            for (const v of subjectVertices) {
+                if (v.isIntersection && !v.visited) {
+                    current = v;
+                    break;
+                }
+            }
+            
+            if (!current) {
+                return subjectVertices.map(v => v.point);
+            }
+            
+            const result = [];
+            let currentList = subjectVertices;
+            let startVertex = current;
+            let iterations = 0;
+            const maxIterations = (subjectVertices.length + clipVertices.length) * 2;
+            
+            while (iterations < maxIterations) {
+                iterations++;
+                
+                result.push({ x: current.point.x, y: current.point.y });
+                current.visited = true;
+                
+                let currentIndex = currentList.indexOf(current);
+                let nextIndex = (currentIndex + 1) % currentList.length;
+                let next = currentList[nextIndex];
+                
+                if (next.isIntersection && next.neighbor && !next.visited) {
+                    current = next.neighbor;
+                    currentList = (currentList === subjectVertices) ? clipVertices : subjectVertices;
+                } else {
+                    current = next;
+                }
+                
+                if (current === startVertex || 
+                    (Math.abs(current.point.x - startVertex.point.x) < 0.0001 && 
+                     Math.abs(current.point.y - startVertex.point.y) < 0.0001)) {
+                    break;
+                }
+            }
+            
+            if (iterations >= maxIterations) {
+                console.warn('Union trace exceeded max iterations');
+            }
+            
+            return result;
+        }
+        
+        function lineSegmentIntersection(p1, p2, p3, p4) {
+            const x1 = p1.x, y1 = p1.y;
+            const x2 = p2.x, y2 = p2.y;
+            const x3 = p3.x, y3 = p3.y;
+            const x4 = p4.x, y4 = p4.y;
+            
+            const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+            
+            if (Math.abs(denom) < 1e-10) {
+                return null;
+            }
+            
+            const t1 = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+            const t2 = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
+            
+            if (t1 >= 0 && t1 <= 1 && t2 >= 0 && t2 <= 1) {
+                return {
+                    point: {
+                        x: x1 + t1 * (x2 - x1),
+                        y: y1 + t1 * (y2 - y1)
+                    },
+                    t1: t1,
+                    t2: t2
+                };
+            }
+            
+            return null;
+        }
+        
+        function isPointInPolygon(point, polygon) {
+            let inside = false;
+            for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+                const xi = polygon[i].x, yi = polygon[i].y;
+                const xj = polygon[j].x, yj = polygon[j].y;
+                
+                const intersect = ((yi > point.y) !== (yj > point.y))
+                    && (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi);
+                if (intersect) inside = !inside;
+            }
+            return inside;
+        }
+        
+        function convexHull(points) {
+            if (points.length < 3) return points;
+        
+            const uniquePoints = [];
+            const seen = new Set();
+            
+            for (const point of points) {
+                const key = `${point.x.toFixed(6)},${point.y.toFixed(6)}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    uniquePoints.push({x: point.x, y: point.y});
+                }
+            }
+        
+            if (uniquePoints.length < 3) return uniquePoints;
+        
+            let start = uniquePoints[0];
+            for (const point of uniquePoints) {
+                if (point.y < start.y || (point.y === start.y && point.x < start.x)) {
+                    start = point;
+                }
+            }
+        
+            const sorted = uniquePoints.filter(p => p !== start).sort((a, b) => {
+                const angleA = Math.atan2(a.y - start.y, a.x - start.x);
+                const angleB = Math.atan2(b.y - start.y, b.x - start.x);
+                if (Math.abs(angleA - angleB) > 1e-10) return angleA - angleB;
+                const distA = Math.hypot(a.x - start.x, a.y - start.y);
+                const distB = Math.hypot(b.x - start.x, b.y - start.y);
+                return distA - distB;
+            });
+        
+            const hull = [start];
+            
+            for (const point of sorted) {
+                while (hull.length >= 2 && crossProduct(hull[hull.length - 2], hull[hull.length - 1], point) <= 0) {
+                    hull.pop();
+                }
+                hull.push(point);
+            }
+        
+            return hull;
+        }
+        
+        function crossProduct(o, a, b) {
+            return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+        }
+
+
         
         function deleteSelected() {
             if (!selectedPath) return;

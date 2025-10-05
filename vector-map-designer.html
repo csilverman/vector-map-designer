@@ -328,20 +328,6 @@
         .edit-mode-banner.active {
             display: block;
         }
-        
-        .union-mode-banner {
-            background: #9b59b6;
-            color: white;
-            padding: 10px 20px;
-            text-align: center;
-            font-weight: bold;
-            display: none;
-        }
-        
-        .union-mode-banner.active {
-            display: block;
-        }
-        
     </style>
 </head>
 <body>
@@ -350,33 +336,24 @@
     </header>
 
     <div class="edit-mode-banner" id="editModeBanner">
-        🔧 EDIT MODE: Click vertices to delete/extend. Click segments to delete. Click between to add points.
+        🔧 EDIT MODE: Drag vertices to move them. Click vertices to delete. Click segments to delete. Click between to add points.
     </div>
-    
-    <div class="union-mode-banner" id="unionModeBanner">
-        🔗 UNION MODE: Right-click another polygon to merge it with the selected one
-    </div>
+
     <div class="container">
         <div class="sidebar">
             
             <div class="info-box">
-                <strong>Click</strong> to add points. <strong>Double-click</strong> or <strong>Enter</strong> to finish. <strong>Hover</strong> to see distances/area. <strong>Right-click</strong> to select. <strong>Pan:</strong> Hold <strong>Spacebar</strong>.
+                <strong>Click</strong> to add points. <strong>Double-click</strong> or <strong>Enter</strong> to finish. <strong>Hover</strong> to see distances/area. <strong>Right-click</strong> a path to select it.
             </div>
 
             <div class="tool-section">
                 <h3>Drawing Tools</h3>
+                <button class="tool-btn" onclick="setTool('vertex-select', this)" style="background: #ecf0f1; color: #2c3e50;">✋ Vertex Select</button>
                 <button class="tool-btn highway active" onclick="setTool('highway', this)">Highway</button>
                 <button class="tool-btn road" onclick="setTool('road', this)">Road</button>
                 <button class="tool-btn river" onclick="setTool('river', this)">River</button>
                 <button class="tool-btn water" onclick="setTool('water', this)">Water Body (Polygon)</button>
                 <button class="tool-btn border" onclick="setTool('border', this)">Border/Boundary</button>
-            </div>
-            <div class="tool-section" id="unionModeControls" style="display: none;">
-                <h3>Union Mode</h3>
-                <div class="info-box">
-                    Select a second polygon to union with <strong id="firstPolygonName">-</strong>
-                </div>
-                <button class="action-btn secondary" onclick="cancelUnion()">✗ Cancel Union</button>
             </div>
 
             <div class="tool-section">
@@ -397,17 +374,17 @@
                     <div>Points: <span id="selectedPoints">0</span></div>
                 </div>
                 <button class="action-btn warning" onclick="enterEditMode()">✏️ Edit Path</button>
-                <button class="action-btn" id="unionBtn" onclick="startUnion()" style="display: none;">🔗 Union with Another Polygon</button>
                 <button class="action-btn danger" onclick="deleteSelected()">🗑️ Delete Entire Path</button>
             </div>
 
             <div class="tool-section" id="editModeControls" style="display: none;">
                 <h3>Edit Mode</h3>
                 <div class="info-box">
-                    <strong>Endpoint:</strong> Click to extend.<br>
-                    <strong>Middle vertex:</strong> Click to delete.<br>
-                    <strong>Segment:</strong> Click to delete.<br>
-                    <strong>Add point:</strong> Click between vertices.
+                    <strong>Drag vertex:</strong> Move it.<br>
+                    <strong>Click endpoint:</strong> Extend path.<br>
+                    <strong>Click middle vertex:</strong> Delete it.<br>
+                    <strong>Click segment:</strong> Delete it.<br>
+                    <strong>Click between:</strong> Add point.
                 </div>
                 <button class="action-btn secondary" onclick="exitEditMode()">✓ Finish Editing</button>
             </div>
@@ -458,1979 +435,1181 @@
     </div>
 
     <script>
-        const canvas = document.getElementById('mapCanvas');
-        const ctx = canvas.getContext('2d');
-        const container = document.getElementById('canvasContainer');
-        const tooltip = document.getElementById('hoverTooltip');
-        
-        // Canvas and view state
-        let viewOffsetX = 0;
-        let viewOffsetY = 0;
-        let zoomLevel = 1.0;
-        let baseScale = 10;
-        let isPanning = false;
-        let spacebarDown = false;
-        let lastPanX = 0;
-        let lastPanY = 0;
-        
-        // Drawing state
-        let currentTool = 'highway';
-        let isDrawingPath = false;
-        let currentPathPoints = [];
-        let selectedPath = null;
-        let hoveredPath = null;
-        let hoveredSegment = null;
-        
-        // Edit mode state
-        let isEditMode = false;
-        let editingPath = null;
-        let hoveredVertex = null;
-        let hoveredEditSegment = null;
-        let extendingFromVertex = null;
-
-        // Union mode state
-        let isUnionMode = false;
-        let firstUnionPolygon = null;
-        
-        let mapData = {
-            highways: [],
-            roads: [],
-            rivers: [],
-            waterBodies: [],
-            borders: [],
-            cities: []
-        };
-        let history = [];
-        let nextId = 1;
-        
-        // Initialize canvas
-        function resizeCanvas() {
-            canvas.width = container.clientWidth;
-            canvas.height = container.clientHeight;
-            redrawCanvas();
-        }
-        
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
-        saveToHistory();
-        
-        // Keyboard handlers
-        document.addEventListener('keydown', handleKeyDown);
-        document.addEventListener('keyup', handleKeyUp);
-        
-        // Mouse event handlers
-        canvas.addEventListener('mousedown', handleMouseDown);
-        canvas.addEventListener('mousemove', handleMouseMove);
-        canvas.addEventListener('mouseup', handleMouseUp);
-        canvas.addEventListener('click', handleClick);
-        canvas.addEventListener('dblclick', handleDoubleClick);
-        canvas.addEventListener('contextmenu', handleRightClick);
-        canvas.addEventListener('wheel', handleWheel, { passive: false });
-        
-        function handleKeyDown(e) {
-            if (e.key === ' ' && !spacebarDown) {
-                e.preventDefault();
-                spacebarDown = true;
-                canvas.classList.add('panning');
-                updateCursor();
-            } else if (e.key === 'Enter' && isDrawingPath) {
-                finishCurrentPath();
-            } else if (e.key === 'Escape') {
-                if (isEditMode) {
-                    exitEditMode();
-                } else {
-                    cancelCurrentPath();
-                }
-            } else if (e.key === 'Delete' && selectedPath && !isEditMode) {
-                deleteSelected();
-            }
-        }
-        
-        function handleKeyUp(e) {
-            if (e.key === ' ') {
-                spacebarDown = false;
-                isPanning = false;
-                canvas.classList.remove('panning');
-                updateCursor();
-            }
-        }
-        
-        function handleMouseDown(e) {
-            if (spacebarDown || e.button === 1) {
-                e.preventDefault();
-                isPanning = true;
-                lastPanX = e.clientX;
-                lastPanY = e.clientY;
-            }
-        }
-        
-        function handleMouseUp(e) {
-            if (isPanning && !spacebarDown) {
-                isPanning = false;
-            }
-        }
-        
-        function handleMouseMove(e) {
-            if (isPanning) {
-                const dx = e.clientX - lastPanX;
-                const dy = e.clientY - lastPanY;
-                viewOffsetX += dx;
-                viewOffsetY += dy;
-                lastPanX = e.clientX;
-                lastPanY = e.clientY;
+            const canvas = document.getElementById('mapCanvas');
+            const ctx = canvas.getContext('2d');
+            const container = document.getElementById('canvasContainer');
+            const tooltip = document.getElementById('hoverTooltip');
+            
+            // Canvas and view state
+            let viewOffsetX = 0;
+            let viewOffsetY = 0;
+            let zoomLevel = 1.0;
+            let baseScale = 10;
+            let isPanning = false;
+            let spacebarDown = false;
+            let lastPanX = 0;
+            let lastPanY = 0;
+            
+            // Drawing state
+            let currentTool = 'highway';
+            let isDrawingPath = false;
+            let currentPathPoints = [];
+            let selectedPath = null;
+            let hoveredPath = null;
+            let hoveredSegment = null;
+            
+            // Edit mode state
+            let isEditMode = false;
+            let editingPath = null;
+            let hoveredVertex = null;
+            let hoveredEditSegment = null;
+            let extendingFromVertex = null;
+            
+            // Vertex dragging state (for vertex select tool)
+            let draggingVertex = null;
+            let dragVertexIndex = -1;
+            let dragPath = null;
+            
+            let mapData = {
+                highways: [],
+                roads: [],
+                rivers: [],
+                waterBodies: [],
+                borders: [],
+                cities: []
+            };
+            let history = [];
+            let nextId = 1;
+            
+            // Initialize canvas
+            function resizeCanvas() {
+                canvas.width = container.clientWidth;
+                canvas.height = container.clientHeight;
                 redrawCanvas();
-                return;
             }
-        
-            const worldPos = screenToWorld(e.clientX, e.clientY);
-            updateCoordinates(worldPos);
-        
-            if (isEditMode && editingPath) {
-                const vertex = findVertexAtPoint(worldPos, editingPath);
-                const segment = findEditSegmentAtPoint(worldPos, editingPath);
+            
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas();
+            saveToHistory();
+            
+            // Keyboard handlers
+            document.addEventListener('keydown', handleKeyDown);
+            document.addEventListener('keyup', handleKeyUp);
+            
+            // Mouse event handlers
+            canvas.addEventListener('mousedown', handleMouseDown);
+            canvas.addEventListener('mousemove', handleMouseMove);
+            canvas.addEventListener('mouseup', handleMouseUp);
+            canvas.addEventListener('click', handleClick);
+            canvas.addEventListener('dblclick', handleDoubleClick);
+            canvas.addEventListener('contextmenu', handleRightClick);
+            canvas.addEventListener('wheel', handleWheel, { passive: false });
+            
+            function handleKeyDown(e) {
+                if (e.key === ' ' && !spacebarDown) {
+                    e.preventDefault();
+                    spacebarDown = true;
+                    canvas.classList.add('panning');
+                    updateCursor();
+                } else if (e.key === 'Enter' && isDrawingPath) {
+                    finishCurrentPath();
+                } else if (e.key === 'Escape') {
+                    if (isEditMode) {
+                        exitEditMode();
+                    } else if (currentTool === 'vertex-select' && draggingVertex) {
+                        // Cancel drag
+                        draggingVertex = null;
+                        dragVertexIndex = -1;
+                        dragPath = null;
+                        redrawCanvas();
+                    } else {
+                        cancelCurrentPath();
+                    }
+                } else if (e.key === 'Delete' && selectedPath && !isEditMode) {
+                    deleteSelected();
+                }
+            }
+            
+            function handleKeyUp(e) {
+                if (e.key === ' ') {
+                    spacebarDown = false;
+                    isPanning = false;
+                    canvas.classList.remove('panning');
+                    updateCursor();
+                }
+            }
+            
+            function handleMouseDown(e) {
+                if (spacebarDown || e.button === 1) {
+                    e.preventDefault();
+                    isPanning = true;
+                    lastPanX = e.clientX;
+                    lastPanY = e.clientY;
+                    return;
+                }
                 
-                if (vertex !== hoveredVertex || segment !== hoveredEditSegment) {
-                    hoveredVertex = vertex;
-                    hoveredEditSegment = segment;
+                // Check if using vertex select tool
+                if (currentTool === 'vertex-select' && e.button === 0) {
+                    const worldPos = screenToWorld(e.clientX, e.clientY);
+                    
+                    // Find any vertex near the click
+                    const allPaths = [
+                        ...mapData.highways,
+                        ...mapData.roads,
+                        ...mapData.rivers,
+                        ...mapData.waterBodies,
+                        ...mapData.borders
+                    ];
+                    
+                    for (const path of allPaths) {
+                        const vertexIndex = findVertexAtPoint(worldPos, path, 0.5);
+                        if (vertexIndex !== null) {
+                            draggingVertex = true;
+                            dragVertexIndex = vertexIndex;
+                            dragPath = path;
+                            canvas.style.cursor = 'grabbing';
+                            e.preventDefault();
+                            return;
+                        }
+                    }
+                }
+                
+                // Check if clicking on a vertex in edit mode
+                if (isEditMode && editingPath && e.button === 0) {
+                    const worldPos = screenToWorld(e.clientX, e.clientY);
+                    const vertexIndex = findVertexAtPoint(worldPos, editingPath, 0.5);
+                    if (vertexIndex !== null) {
+                        draggingVertex = true;
+                        dragVertexIndex = vertexIndex;
+                        dragPath = editingPath;
+                        canvas.style.cursor = 'grabbing';
+                        e.preventDefault();
+                    }
+                }
+            }
+            
+            function handleMouseUp(e) {
+                if (draggingVertex) {
+                    draggingVertex = false;
+                    dragVertexIndex = -1;
+                    dragPath = null;
+                    updateCursor();
+                    saveToHistory();
                     redrawCanvas();
+                    return;
                 }
-                tooltip.classList.remove('show');
-            } else if (extendingFromVertex !== null) {
-                redrawCanvas();
-                drawExtensionPreview(worldPos);
-            } else {
-                hoveredVertex = null;
-                hoveredEditSegment = null;
                 
-                const hoverInfo = findPathAndSegmentAtPoint(worldPos);
+                if (isPanning && !spacebarDown) {
+                    isPanning = false;
+                }
+            }
+            
+            function handleMouseMove(e) {
+                // Handle vertex dragging
+                if (draggingVertex && dragVertexIndex !== -1 && dragPath) {
+                    const worldPos = screenToWorld(e.clientX, e.clientY);
+                    dragPath.points[dragVertexIndex] = worldPos;
+                    redrawCanvas();
+                    return;
+                }
                 
-                if (hoverInfo) {
-                    hoveredPath = hoverInfo.path;
-                    hoveredSegment = hoverInfo.segment;
+                if (isPanning) {
+                    const dx = e.clientX - lastPanX;
+                    const dy = e.clientY - lastPanY;
+                    viewOffsetX += dx;
+                    viewOffsetY += dy;
+                    lastPanX = e.clientX;
+                    lastPanY = e.clientY;
+                    redrawCanvas();
+                    return;
+                }
+            
+                const worldPos = screenToWorld(e.clientX, e.clientY);
+                updateCoordinates(worldPos);
+                
+                // Highlight vertices when using vertex select tool
+                if (currentTool === 'vertex-select' && !draggingVertex) {
+                    let foundVertex = false;
+                    const allPaths = [
+                        ...mapData.highways,
+                        ...mapData.roads,
+                        ...mapData.rivers,
+                        ...mapData.waterBodies,
+                        ...mapData.borders
+                    ];
                     
-                    const isPolygon = hoverInfo.path.type === 'water' || hoverInfo.path.type === 'border';
-                    
-                    if (isPolygon && hoverInfo.segment) {
-                        const segmentLength = hoverInfo.segmentLength;
-                        const totalLength = calculatePathLength([...hoverInfo.path.points, hoverInfo.path.points[0]]);
-                        const area = calculatePolygonArea(hoverInfo.path.points);
-                        
-                        document.getElementById('segmentInfo').style.display = 'block';
-                        document.getElementById('totalInfo').style.display = 'block';
-                        document.getElementById('areaInfo').style.display = 'block';
-                        document.getElementById('segmentDist').textContent = segmentLength.toFixed(2) + ' km';
-                        document.getElementById('totalDist').textContent = totalLength.toFixed(2) + ' km';
-                        document.getElementById('areaDist').textContent = area.toFixed(2) + ' km²';
-                    } else if (!isPolygon) {
-                        const segmentLength = hoverInfo.segmentLength;
-                        const totalLength = calculatePathLength(hoverInfo.path.points);
-                        
-                        document.getElementById('segmentInfo').style.display = 'block';
-                        document.getElementById('totalInfo').style.display = 'block';
-                        document.getElementById('areaInfo').style.display = 'none';
-                        document.getElementById('segmentDist').textContent = segmentLength.toFixed(2) + ' km';
-                        document.getElementById('totalDist').textContent = totalLength.toFixed(2) + ' km';
+                    for (const path of allPaths) {
+                        const vertexIndex = findVertexAtPoint(worldPos, path, 0.5);
+                        if (vertexIndex !== null) {
+                            hoveredPath = path;
+                            hoveredVertex = vertexIndex;
+                            foundVertex = true;
+                            updateCursor();
+                            redrawCanvas();
+                            break;
+                        }
                     }
                     
-                    tooltip.style.left = (e.clientX + 15) + 'px';
-                    tooltip.style.top = (e.clientY + 15) + 'px';
-                    tooltip.classList.add('show');
-                    
-                    redrawCanvas();
-                } else {
-                    if (hoveredPath) {
+                    if (!foundVertex && hoveredVertex !== null) {
+                        hoveredVertex = null;
                         hoveredPath = null;
-                        hoveredSegment = null;
+                        updateCursor();
+                        redrawCanvas();
+                    }
+                    
+                    tooltip.classList.remove('show');
+                    return;
+                }
+            
+                if (isEditMode && editingPath) {
+                    const vertex = findVertexAtPoint(worldPos, editingPath);
+                    const segment = findEditSegmentAtPoint(worldPos, editingPath);
+                    
+                    if (vertex !== hoveredVertex || segment !== hoveredEditSegment) {
+                        hoveredVertex = vertex;
+                        hoveredEditSegment = segment;
+                        updateCursor();
                         redrawCanvas();
                     }
                     tooltip.classList.remove('show');
-                }
-            }
-        
-            if (isDrawingPath) {
-                redrawCanvas();
-                drawPreviewPoint(worldPos);
-            }
-        }
-        
-        function handleClick(e) {
-            if (spacebarDown || isPanning || e.button !== 0) return;
-            
-            const worldPos = screenToWorld(e.clientX, e.clientY);
-            
-            if (isEditMode && editingPath) {
-                handleEditClick(worldPos);
-            } else if (extendingFromVertex !== null) {
-                extendingFromVertex.path.points.push(worldPos);
-                redrawCanvas();
-            } else if (currentTool === 'city') {
-                placeCity(worldPos);
-            } else {
-                if (!isDrawingPath) {
-                    isDrawingPath = true;
-                    currentPathPoints = [];
-                    selectedPath = null;
-                    updateDrawingStatus('Drawing... (double-click or Enter to finish)');
-                }
-                currentPathPoints.push(worldPos);
-                redrawCanvas();
-            }
-        }
-        
-        function handleEditClick(worldPos) {
-            const vertex = findVertexAtPoint(worldPos, editingPath);
-            
-            if (vertex !== null) {
-                if (vertex === 0 || vertex === editingPath.points.length - 1) {
-                    if (extendingFromVertex !== null) {
-                        if (extendingFromVertex.vertexIndex !== vertex) {
-                            joinPaths(extendingFromVertex.vertexIndex, vertex);
+                } else if (extendingFromVertex !== null) {
+                    redrawCanvas();
+                    drawExtensionPreview(worldPos);
+                } else {
+                    hoveredVertex = null;
+                    hoveredEditSegment = null;
+                    
+                    const hoverInfo = findPathAndSegmentAtPoint(worldPos);
+                    
+                    if (hoverInfo) {
+                        hoveredPath = hoverInfo.path;
+                        hoveredSegment = hoverInfo.segment;
+                        
+                        const isPolygon = hoverInfo.path.type === 'water' || hoverInfo.path.type === 'border';
+                        
+                        if (isPolygon && hoverInfo.segment) {
+                            const segmentLength = hoverInfo.segmentLength;
+                            const totalLength = calculatePathLength([...hoverInfo.path.points, hoverInfo.path.points[0]]);
+                            const area = calculatePolygonArea(hoverInfo.path.points);
+                            
+                            document.getElementById('segmentInfo').style.display = 'block';
+                            document.getElementById('totalInfo').style.display = 'block';
+                            document.getElementById('areaInfo').style.display = 'block';
+                            document.getElementById('segmentDist').textContent = segmentLength.toFixed(2) + ' km';
+                            document.getElementById('totalDist').textContent = totalLength.toFixed(2) + ' km';
+                            document.getElementById('areaDist').textContent = area.toFixed(2) + ' km²';
+                        } else if (!isPolygon) {
+                            const segmentLength = hoverInfo.segmentLength;
+                            const totalLength = calculatePathLength(hoverInfo.path.points);
+                            
+                            document.getElementById('segmentInfo').style.display = 'block';
+                            document.getElementById('totalInfo').style.display = 'block';
+                            document.getElementById('areaInfo').style.display = 'none';
+                            document.getElementById('segmentDist').textContent = segmentLength.toFixed(2) + ' km';
+                            document.getElementById('totalDist').textContent = totalLength.toFixed(2) + ' km';
                         }
+                        
+                        tooltip.style.left = (e.clientX + 15) + 'px';
+                        tooltip.style.top = (e.clientY + 15) + 'px';
+                        tooltip.classList.add('show');
+                        
+                        redrawCanvas();
+                    } else {
+                        if (hoveredPath) {
+                            hoveredPath = null;
+                            hoveredSegment = null;
+                            redrawCanvas();
+                        }
+                        tooltip.classList.remove('show');
+                    }
+                }
+            
+                if (isDrawingPath) {
+                    redrawCanvas();
+                    drawPreviewPoint(worldPos);
+                }
+            }
+            
+            function handleClick(e) {
+                if (spacebarDown || isPanning || e.button !== 0) return;
+                if (draggingVertex) return; // Don't process clicks while dragging
+                
+                // Vertex select tool doesn't do anything on click (only drag)
+                if (currentTool === 'vertex-select') return;
+                
+                const worldPos = screenToWorld(e.clientX, e.clientY);
+                
+                if (isEditMode && editingPath) {
+                    handleEditClick(worldPos);
+                } else if (extendingFromVertex !== null) {
+                    extendingFromVertex.path.points.push(worldPos);
+                    redrawCanvas();
+                } else if (currentTool === 'city') {
+                    placeCity(worldPos);
+                } else {
+                    if (!isDrawingPath) {
+                        isDrawingPath = true;
+                        currentPathPoints = [];
+                        selectedPath = null;
+                        updateDrawingStatus('Drawing... (double-click or Enter to finish)');
+                    }
+                    currentPathPoints.push(worldPos);
+                    redrawCanvas();
+                }
+            }
+            
+            function handleEditClick(worldPos) {
+                const vertex = findVertexAtPoint(worldPos, editingPath);
+                
+                if (vertex !== null) {
+                    if (vertex === 0 || vertex === editingPath.points.length - 1) {
+                        if (extendingFromVertex !== null) {
+                            if (extendingFromVertex.vertexIndex !== vertex) {
+                                joinPaths(extendingFromVertex.vertexIndex, vertex);
+                            }
+                            extendingFromVertex = null;
+                        } else {
+                            extendingFromVertex = { path: editingPath, vertexIndex: vertex };
+                            updateDrawingStatus('Click to add points, click endpoint to join');
+                        }
+                    } else {
+                        deleteVertex(vertex);
+                        extendingFromVertex = null;
+                    }
+                } else {
+                    const segment = findEditSegmentAtPoint(worldPos, editingPath);
+                    if (segment !== null) {
+                        deleteSegment(segment);
                         extendingFromVertex = null;
                     } else {
-                        extendingFromVertex = { path: editingPath, vertexIndex: vertex };
-                        updateDrawingStatus('Click to add points, click endpoint to join');
+                        const insertInfo = findInsertionPoint(worldPos, editingPath);
+                        if (insertInfo) {
+                            insertVertex(insertInfo.index, worldPos);
+                        }
+                        extendingFromVertex = null;
                     }
-                } else {
-                    deleteVertex(vertex);
-                    extendingFromVertex = null;
                 }
-            } else {
-                const segment = findEditSegmentAtPoint(worldPos, editingPath);
-                if (segment !== null) {
-                    deleteSegment(segment);
-                    extendingFromVertex = null;
-                } else {
-                    const insertInfo = findInsertionPoint(worldPos, editingPath);
-                    if (insertInfo) {
-                        insertVertex(insertInfo.index, worldPos);
-                    }
-                    extendingFromVertex = null;
-                }
-            }
-            
-            redrawCanvas();
-        }
-        
-        function handleDoubleClick(e) {
-            e.preventDefault();
-            if (spacebarDown || isPanning) return;
-            
-            if (extendingFromVertex !== null) {
-                extendingFromVertex = null;
-                updateDrawingStatus('Edit mode');
+                
                 redrawCanvas();
-            } else if (!isEditMode) {
-                finishCurrentPath();
             }
-        }
-        
-        function handleRightClick(e) {
-            e.preventDefault();
-            if (isPanning || isEditMode) return;
             
-            const worldPos = screenToWorld(e.clientX, e.clientY);
+            function handleDoubleClick(e) {
+                e.preventDefault();
+                if (spacebarDown || isPanning) return;
+                
+                if (extendingFromVertex !== null) {
+                    extendingFromVertex = null;
+                    updateDrawingStatus('Edit mode');
+                    redrawCanvas();
+                } else if (!isEditMode && currentTool !== 'vertex-select') {
+                    finishCurrentPath();
+                }
+            }
             
-            const hoverInfo = findPathAndSegmentAtPoint(worldPos);
-            if (hoverInfo) {
-                if (isUnionMode) {
-                    // Check if it's a valid polygon for union
-                    if (hoverInfo.path.type === 'water' || hoverInfo.path.type === 'border') {
-                        performUnion(hoverInfo.path);
-                    } else {
-                        alert('Can only union water bodies and borders');
-                    }
-                } else {
+            function handleRightClick(e) {
+                e.preventDefault();
+                if (isPanning || isEditMode) return;
+                
+                const worldPos = screenToWorld(e.clientX, e.clientY);
+                
+                const hoverInfo = findPathAndSegmentAtPoint(worldPos);
+                if (hoverInfo) {
                     selectedPath = hoverInfo.path;
                     showPathInfo(hoverInfo.path);
                     redrawCanvas();
                 }
             }
-        }
-        
-        function handleWheel(e) {
-            e.preventDefault();
             
-            const zoomChange = e.deltaY < 0 ? 0.01 : -0.01;
-            const newZoom = Math.max(0.01, Math.min(50, zoomLevel + zoomChange));
-            
-            const offsetX = e.clientX - container.getBoundingClientRect().left;
-            const offsetY = e.clientY - container.getBoundingClientRect().top;
-            
-            viewOffsetX = offsetX - (offsetX - viewOffsetX) * (newZoom / zoomLevel);
-            viewOffsetY = offsetY - (offsetY - viewOffsetY) * (newZoom / zoomLevel);
-            
-            zoomLevel = newZoom;
-            updateZoomDisplay();
-            redrawCanvas();
-        }
-        
-        function screenToWorld(screenX, screenY) {
-            const rect = container.getBoundingClientRect();
-            const x = (screenX - rect.left - viewOffsetX) / (zoomLevel * baseScale);
-            const y = (screenY - rect.top - viewOffsetY) / (zoomLevel * baseScale);
-            return { x, y };
-        }
-        
-        function worldToScreen(worldX, worldY) {
-            return {
-                x: worldX * baseScale * zoomLevel + viewOffsetX,
-                y: worldY * baseScale * zoomLevel + viewOffsetY
-            };
-        }
-        
-        function updateCoordinates(pos) {
-            document.getElementById('coords').textContent = `${pos.x.toFixed(2)}, ${pos.y.toFixed(2)} km`;
-        }
-        
-        function updateCursor() {
-            if (spacebarDown || isPanning) {
-                return;
-            }
-            
-            if (isEditMode) {
-                canvas.style.cursor = 'pointer';
-            } else if (currentTool === 'city') {
-                canvas.style.cursor = 'pointer';
-            } else {
-                canvas.style.cursor = 'crosshair';
-            }
-        }
-        
-        function updateZoomDisplay() {
-            const zoomPercent = Math.round(zoomLevel * 100);
-            document.getElementById('zoomLevel').textContent = zoomPercent;
-            document.getElementById('zoomDisplay').textContent = zoomPercent + '%';
-            document.getElementById('scaleDisplay').textContent = (baseScale * zoomLevel).toFixed(2) + ' px/km';
-        }
-        
-        function zoomIn() {
-            const centerX = canvas.width / 2;
-            const centerY = canvas.height / 2;
-            
-            const newZoom = Math.min(50, zoomLevel + 0.01);
-            viewOffsetX = centerX - (centerX - viewOffsetX) * (newZoom / zoomLevel);
-            viewOffsetY = centerY - (centerY - viewOffsetY) * (newZoom / zoomLevel);
-            
-            zoomLevel = newZoom;
-            updateZoomDisplay();
-            redrawCanvas();
-        }
-        
-        function zoomOut() {
-            const centerX = canvas.width / 2;
-            const centerY = canvas.height / 2;
-            
-            const newZoom = Math.max(0.01, zoomLevel - 0.01);
-            viewOffsetX = centerX - (centerX - viewOffsetX) * (newZoom / zoomLevel);
-            viewOffsetY = centerY - (centerY - viewOffsetY) * (newZoom / zoomLevel);
-            
-            zoomLevel = newZoom;
-            updateZoomDisplay();
-            redrawCanvas();
-        }
-        
-        function resetZoom() {
-            zoomLevel = 1.0;
-            viewOffsetX = 0;
-            viewOffsetY = 0;
-            updateZoomDisplay();
-            redrawCanvas();
-        }
-        
-        // Edit mode functions
-        function enterEditMode() {
-            if (!selectedPath) return;
-            
-            isEditMode = true;
-            editingPath = selectedPath;
-            extendingFromVertex = null;
-            document.getElementById('editModeBanner').classList.add('active');
-            document.getElementById('editModeControls').style.display = 'block';
-            document.getElementById('selectedPathInfo').style.display = 'none';
-            updateDrawingStatus('Edit mode');
-            updateCursor();
-            redrawCanvas();
-        }
-        
-        function exitEditMode() {
-            isEditMode = false;
-            editingPath = null;
-            hoveredVertex = null;
-            hoveredEditSegment = null;
-            extendingFromVertex = null;
-            document.getElementById('editModeBanner').classList.remove('active');
-            document.getElementById('editModeControls').style.display = 'none';
-            updateDrawingStatus('Ready');
-            updateCursor();
-            saveToHistory();
-            redrawCanvas();
-        }
-        
-        function findVertexAtPoint(pos, path, tolerance = 0.5) {
-            for (let i = 0; i < path.points.length; i++) {
-                const dist = calculateSegmentLength(pos, path.points[i]);
-                if (dist < tolerance) {
-                    return i;
-                }
-            }
-            return null;
-        }
-        
-        function findEditSegmentAtPoint(pos, path, tolerance = 0.3) {
-            for (let i = 1; i < path.points.length; i++) {
-                const dist = distanceToSegment(pos, path.points[i-1], path.points[i]);
-                if (dist < tolerance) {
-                    return { start: i - 1, end: i };
-                }
-            }
-            return null;
-        }
-        
-        function findInsertionPoint(pos, path, tolerance = 0.5) {
-            for (let i = 1; i < path.points.length; i++) {
-                const dist = distanceToSegment(pos, path.points[i-1], path.points[i]);
-                if (dist < tolerance) {
-                    return { index: i, segment: { start: i-1, end: i } };
-                }
-            }
-            return null;
-        }
-        
-        function deleteVertex(vertexIndex) {
-            if (!editingPath || editingPath.points.length <= 2) {
-                alert('Cannot delete vertex - path must have at least 2 points');
-                return;
-            }
-            editingPath.points.splice(vertexIndex, 1);
-        }
-        
-
-
-
-        function deleteSegment(segment) {
-            if (!editingPath) return;
-            
-            // Split the path into two separate paths at the deleted segment
-            const beforePoints = editingPath.points.slice(0, segment.start + 1);
-            const afterPoints = editingPath.points.slice(segment.end);
-            
-            // Check if we have valid paths
-            const beforeValid = beforePoints.length >= 2;
-            const afterValid = afterPoints.length >= 2;
-            
-            if (!beforeValid && !afterValid) {
-                // Neither part is valid, delete the entire path
-                const collections = ['highways', 'roads', 'rivers', 'waterBodies', 'borders'];
-                for (const collection of collections) {
-                    const index = mapData[collection].findIndex(p => p.id === editingPath.id);
-                    if (index !== -1) {
-                        mapData[collection].splice(index, 1);
-                        exitEditMode();
-                        return;
-                    }
-                }
-            } else if (beforeValid && afterValid) {
-                // Both parts are valid, keep the first and create a new path for the second
-                editingPath.points = beforePoints;
+            function handleWheel(e) {
+                e.preventDefault();
                 
-                const newPath = {
-                    id: nextId++,
-                    points: afterPoints,
-                    type: editingPath.type
-                };
+                const zoomChange = e.deltaY < 0 ? 0.01 : -0.01;
+                const newZoom = Math.max(0.01, Math.min(50, zoomLevel + zoomChange));
                 
-                const collection = getCollectionForType(editingPath.type);
-                mapData[collection].push(newPath);
-            } else if (beforeValid) {
-                // Only the before part is valid
-                editingPath.points = beforePoints;
-            } else if (afterValid) {
-                // Only the after part is valid
-                editingPath.points = afterPoints;
-            }
-            
-            redrawCanvas();
-        }
-
-
-        function insertVertex(index, pos) {
-            if (!editingPath) return;
-            editingPath.points.splice(index, 0, pos);
-        }
-        
-        function joinPaths(fromVertex, toVertex) {
-            if (!editingPath) return;
-            
-            if (fromVertex !== 0 && fromVertex !== editingPath.points.length - 1) return;
-            if (toVertex !== 0 && toVertex !== editingPath.points.length - 1) return;
-            
-            if (fromVertex === toVertex) {
-                return;
-            }
-            
-            if (fromVertex === 0) {
-                editingPath.points.reverse();
-            }
-            
-            extendingFromVertex = null;
-            updateDrawingStatus('Paths joined');
-        }
-        
-        function getCollectionForType(type) {
-            switch(type) {
-                case 'highway': return 'highways';
-                case 'road': return 'roads';
-                case 'river': return 'rivers';
-                case 'water': return 'waterBodies';
-                case 'border': return 'borders';
-                default: return 'highways';
-            }
-        }
-        
-        function setTool(tool, buttonElement) {
-            if (isEditMode) {
-                exitEditMode();
-            }
-            
-            if (isDrawingPath && tool !== currentTool) {
-                finishCurrentPath();
-            }
-        
-            currentTool = tool;
-            
-            document.querySelectorAll('.tool-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            buttonElement.classList.add('active');
-        
-            const toolNames = {
-                'highway': 'Highway',
-                'road': 'Road',
-                'river': 'River',
-                'water': 'Water Body',
-                'border': 'Border',
-                'city': 'City'
-            };
-            document.getElementById('currentToolDisplay').textContent = toolNames[tool];
-        
-            updateCursor();
-            updateDrawingStatus('Ready');
-        }
-        
-        function updateDrawingStatus(status) {
-            document.getElementById('drawingStatus').textContent = status;
-        }
-        
-        function finishCurrentPath() {
-            if (!isDrawingPath || currentPathPoints.length < 2) {
-                isDrawingPath = false;
-                currentPathPoints = [];
-                updateDrawingStatus('Ready');
-                return;
-            }
-        
-            const pathData = {
-                id: nextId++,
-                points: [...currentPathPoints],
-                type: currentTool
-            };
-        
-            const collection = getCollectionForType(currentTool);
-            mapData[collection].push(pathData);
-        
-            isDrawingPath = false;
-            currentPathPoints = [];
-            saveToHistory();
-            redrawCanvas();
-            updateDrawingStatus('Ready');
-        }
-        
-        function cancelCurrentPath() {
-            isDrawingPath = false;
-            currentPathPoints = [];
-            redrawCanvas();
-            updateDrawingStatus('Ready');
-        }
-        
-        function placeCity(pos) {
-            const cityName = document.getElementById('cityName').value || 'Unnamed City';
-            
-            mapData.cities.push({
-                id: nextId++,
-                name: cityName,
-                x: pos.x,
-                y: pos.y
-            });
-        
-            saveToHistory();
-            redrawCanvas();
-        }
-        
-        function calculatePathLength(points) {
-            let totalLength = 0;
-            for (let i = 1; i < points.length; i++) {
-                totalLength += calculateSegmentLength(points[i-1], points[i]);
-            }
-            return totalLength;
-        }
-        
-        function calculateSegmentLength(p1, p2) {
-            const dx = p2.x - p1.x;
-            const dy = p2.y - p1.y;
-            return Math.sqrt(dx * dx + dy * dy);
-        }
-        
-        function calculatePolygonArea(points) {
-            if (points.length < 3) return 0;
-            
-            let area = 0;
-            for (let i = 0; i < points.length; i++) {
-                const j = (i + 1) % points.length;
-                area += points[i].x * points[j].y;
-                area -= points[j].x * points[i].y;
-            }
-            return Math.abs(area / 2);
-        }
-        
-        function findPathAndSegmentAtPoint(pos, tolerance = 0.5) {
-            const allPaths = [
-                ...mapData.borders.map(p => ({...p, collection: 'borders'})),
-                ...mapData.highways.map(p => ({...p, collection: 'highways'})),
-                ...mapData.roads.map(p => ({...p, collection: 'roads'})),
-                ...mapData.rivers.map(p => ({...p, collection: 'rivers'})),
-                ...mapData.waterBodies.map(p => ({...p, collection: 'waterBodies'}))
-            ].reverse();
-        
-            for (const path of allPaths) {
-                for (let i = 1; i < path.points.length; i++) {
-                    const dist = distanceToSegment(pos, path.points[i-1], path.points[i]);
-                    if (dist < tolerance) {
-                        return {
-                            path: path,
-                            segment: { start: i - 1, end: i },
-                            segmentLength: calculateSegmentLength(path.points[i-1], path.points[i])
-                        };
-                    }
-                }
+                const offsetX = e.clientX - container.getBoundingClientRect().left;
+                const offsetY = e.clientY - container.getBoundingClientRect().top;
                 
-                if (path.type === 'water' || path.type === 'border') {
-                    const dist = distanceToSegment(pos, path.points[path.points.length - 1], path.points[0]);
-                    if (dist < tolerance) {
-                        return {
-                            path: path,
-                            segment: { start: path.points.length - 1, end: 0 },
-                            segmentLength: calculateSegmentLength(path.points[path.points.length - 1], path.points[0])
-                        };
-                    }
-                }
-            }
-            return null;
-        }
-        
-        
-        
-        // Union mode functions
-        function startUnion() {
-            if (!selectedPath) return;
-            if (selectedPath.type !== 'water' && selectedPath.type !== 'border') {
-                alert('Union only works with water bodies and borders');
-                return;
-            }
-        
-            isUnionMode = true;
-            firstUnionPolygon = selectedPath;
-            document.getElementById('unionModeBanner').classList.add('active');
-            document.getElementById('unionModeControls').style.display = 'block';
-            document.getElementById('selectedPathInfo').style.display = 'none';
-            document.getElementById('firstPolygonName').textContent = selectedPath.type.charAt(0).toUpperCase() + selectedPath.type.slice(1) + ' #' + selectedPath.id;
-            updateDrawingStatus('Select second polygon to union');
-            redrawCanvas();
-        }
-        
-        function cancelUnion() {
-            isUnionMode = false;
-            firstUnionPolygon = null;
-            selectedPath = null;
-            document.getElementById('unionModeBanner').classList.remove('active');
-            document.getElementById('unionModeControls').style.display = 'none';
-            document.getElementById('selectedPathInfo').style.display = 'none';
-            updateDrawingStatus('Ready');
-            redrawCanvas();
-        }        
-
-
-
-        // Polygon Union with Weiler-Atherton Algorithm
-        function performUnion(secondPolygon) {
-            if (!firstUnionPolygon || !secondPolygon) return;
-            if (firstUnionPolygon.id === secondPolygon.id) {
-                alert('Cannot union a polygon with itself');
-                return;
-            }
-            if (firstUnionPolygon.type !== secondPolygon.type) {
-                alert('Can only union polygons of the same type');
-                return;
-            }
-        
-            console.log('Starting union...');
-            console.log('First polygon:', firstUnionPolygon.points.length, 'points');
-            console.log('Second polygon:', secondPolygon.points.length, 'points');
-        
-            // Perform Weiler-Atherton polygon union
-            const unionPoints = weilerAthertonUnion(firstUnionPolygon.points, secondPolygon.points);
-        
-            console.log('Union result:', unionPoints.length, 'points');
-        
-            if (unionPoints.length < 3) {
-                alert('Union failed - not enough points in result');
-                cancelUnion();
-                return;
-            }
-        
-            const collection = getCollectionForType(firstUnionPolygon.type);
-            const firstIndex = mapData[collection].findIndex(p => p.id === firstUnionPolygon.id);
-            
-            if (firstIndex === -1) {
-                alert('Error: Could not find first polygon in collection');
-                cancelUnion();
-                return;
-            }
-        
-            mapData[collection][firstIndex].points = unionPoints;
-            firstUnionPolygon.points = unionPoints;
-        
-            const secondIndex = mapData[collection].findIndex(p => p.id === secondPolygon.id);
-            if (secondIndex !== -1) {
-                mapData[collection].splice(secondIndex, 1);
-            }
-        
-            const mergedPolygon = mapData[collection][firstIndex];
-            
-            isUnionMode = false;
-            firstUnionPolygon = null;
-            document.getElementById('unionModeBanner').classList.remove('active');
-            document.getElementById('unionModeControls').style.display = 'none';
-            
-            selectedPath = mergedPolygon;
-            showPathInfo(selectedPath);
-            
-            saveToHistory();
-            updateDrawingStatus('Ready');
-            redrawCanvas();
-            
-            alert(`Polygons merged with ${unionPoints.length} vertices.`);
-        }
-        
-
-        
-        // Build vertex list with intersections
-        function buildVertexList(poly, otherPoly, isSubject) {
-            const vertices = [];
-            
-            for (let i = 0; i < poly.length; i++) {
-                const current = poly[i];
-                const next = poly[(i + 1) % poly.length];
+                viewOffsetX = offsetX - (offsetX - viewOffsetX) * (newZoom / zoomLevel);
+                viewOffsetY = offsetY - (offsetY - viewOffsetY) * (newZoom / zoomLevel);
                 
-                // Add current vertex
-                vertices.push({
-                    point: { x: current.x, y: current.y },
-                    isIntersection: false,
-                    isEntry: false,
-                    neighbor: null,
-                    visited: false,
-                    index: i
-                });
-                
-                // Find intersections on this edge
-                const intersections = [];
-                
-                for (let j = 0; j < otherPoly.length; j++) {
-                    const otherCurrent = otherPoly[j];
-                    const otherNext = otherPoly[(j + 1) % otherPoly.length];
-                    
-                    const intersection = lineSegmentIntersection(current, next, otherCurrent, otherNext);
-                    
-                    if (intersection && intersection.t1 > 0.0001 && intersection.t1 < 0.9999) {
-                        intersections.push({
-                            point: intersection.point,
-                            t: intersection.t1,
-                            otherEdge: j
-                        });
-                    }
-                }
-                
-                // Sort intersections by distance along edge
-                intersections.sort((a, b) => a.t - b.t);
-                
-                // Add intersection vertices
-                for (const int of intersections) {
-                    // Determine if this is an entry or exit point
-                    const edgeVector = { x: next.x - current.x, y: next.y - current.y };
-                    const otherEdgeStart = otherPoly[int.otherEdge];
-                    const otherEdgeEnd = otherPoly[(int.otherEdge + 1) % otherPoly.length];
-                    const otherEdgeVector = { 
-                        x: otherEdgeEnd.x - otherEdgeStart.x, 
-                        y: otherEdgeEnd.y - otherEdgeStart.y 
-                    };
-                    
-                    // Cross product to determine entry/exit
-                    const cross = edgeVector.x * otherEdgeVector.y - edgeVector.y * otherEdgeVector.x;
-                    const isEntry = isSubject ? cross < 0 : cross > 0;
-                    
-                    vertices.push({
-                        point: int.point,
-                        isIntersection: true,
-                        isEntry: isEntry,
-                        neighbor: null,
-                        visited: false,
-                        otherEdge: int.otherEdge,
-                        t: int.t
-                    });
-                }
+                zoomLevel = newZoom;
+                updateZoomDisplay();
+                redrawCanvas();
             }
             
-            return vertices;
-        }
-        
-        // Link corresponding intersection vertices
-        function linkIntersections(subjectVertices, clipVertices) {
-            const subjectIntersections = subjectVertices.filter(v => v.isIntersection);
-            const clipIntersections = clipVertices.filter(v => v.isIntersection);
-            
-            for (const sv of subjectIntersections) {
-                for (const cv of clipIntersections) {
-                    const dx = sv.point.x - cv.point.x;
-                    const dy = sv.point.y - cv.point.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    
-                    if (dist < 0.0001) {
-                        sv.neighbor = cv;
-                        cv.neighbor = sv;
-                        break;
-                    }
-                }
-            }
-        }
-        
-
-
-        function weilerAthertonUnion(subject, clip) {
-            // Find all intersection points
-            const intersections = findAllIntersections(subject, clip);
-            
-            console.log('Intersections found:', intersections.length);
-            
-            if (intersections.length === 0) {
-                // No intersections - check containment
-                if (isPointInPolygon(subject[0], clip)) {
-                    return clip; // Subject inside clip
-                } else if (isPointInPolygon(clip[0], subject)) {
-                    return subject; // Clip inside subject
-                } else {
-                    return convexHull([...subject, ...clip]); // Separate polygons
-                }
+            function screenToWorld(screenX, screenY) {
+                const rect = container.getBoundingClientRect();
+                const x = (screenX - rect.left - viewOffsetX) / (zoomLevel * baseScale);
+                const y = (screenY - rect.top - viewOffsetY) / (zoomLevel * baseScale);
+                return { x, y };
             }
             
-            // Build combined vertex list with intersections
-            const allPoints = [];
-            
-            // Add subject polygon points
-            for (let i = 0; i < subject.length; i++) {
-                const p = subject[i];
-                // Only add if outside clip polygon (for union we want outer boundary)
-                if (!isPointInPolygon(p, clip)) {
-                    allPoints.push(p);
-                }
-            }
-            
-            // Add clip polygon points
-            for (let i = 0; i < clip.length; i++) {
-                const p = clip[i];
-                // Only add if outside subject polygon
-                if (!isPointInPolygon(p, subject)) {
-                    allPoints.push(p);
-                }
-            }
-            
-            // Add all intersection points
-            for (const int of intersections) {
-                allPoints.push(int.point);
-            }
-            
-            if (allPoints.length < 3) {
-                console.warn('Not enough points for union, falling back to convex hull');
-                return convexHull([...subject, ...clip]);
-            }
-            
-            // Return convex hull of all outer points and intersections
-            return convexHull(allPoints);
-        }
-        
-        function findAllIntersections(poly1, poly2) {
-            const intersections = [];
-            
-            for (let i = 0; i < poly1.length; i++) {
-                const p1Start = poly1[i];
-                const p1End = poly1[(i + 1) % poly1.length];
-                
-                for (let j = 0; j < poly2.length; j++) {
-                    const p2Start = poly2[j];
-                    const p2End = poly2[(j + 1) % poly2.length];
-                    
-                    const intersection = lineSegmentIntersection(p1Start, p1End, p2Start, p2End);
-                    
-                    if (intersection && intersection.t1 > 0.0001 && intersection.t1 < 0.9999) {
-                        intersections.push({
-                            point: intersection.point,
-                            edge1: i,
-                            edge2: j
-                        });
-                    }
-                }
-            }
-            
-            return intersections;
-        }
-
-
-        
-        // Line segment intersection
-        function lineSegmentIntersection(p1, p2, p3, p4) {
-            const x1 = p1.x, y1 = p1.y;
-            const x2 = p2.x, y2 = p2.y;
-            const x3 = p3.x, y3 = p3.y;
-            const x4 = p4.x, y4 = p4.y;
-            
-            const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
-            
-            if (Math.abs(denom) < 1e-10) {
-                return null;
-            }
-            
-            const t1 = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
-            const t2 = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
-            
-            if (t1 >= 0 && t1 <= 1 && t2 >= 0 && t2 <= 1) {
+            function worldToScreen(worldX, worldY) {
                 return {
-                    point: {
-                        x: x1 + t1 * (x2 - x1),
-                        y: y1 + t1 * (y2 - y1)
-                    },
-                    t1: t1,
-                    t2: t2
+                    x: worldX * baseScale * zoomLevel + viewOffsetX,
+                    y: worldY * baseScale * zoomLevel + viewOffsetY
                 };
             }
             
-            return null;
-        }
-        
-        // Check if point is inside polygon
-        function isPointInPolygon(point, polygon) {
-            let inside = false;
-            for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-                const xi = polygon[i].x, yi = polygon[i].y;
-                const xj = polygon[j].x, yj = polygon[j].y;
+            function updateCoordinates(pos) {
+                document.getElementById('coords').textContent = `${pos.x.toFixed(2)}, ${pos.y.toFixed(2)} km`;
+            }
+            
+            function updateCursor() {
+                if (spacebarDown || isPanning) {
+                    return;
+                }
                 
-                const intersect = ((yi > point.y) !== (yj > point.y))
-                    && (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi);
-                if (intersect) inside = !inside;
-            }
-            return inside;
-        }
-        
-        // Convex Hull (fallback)
-        function convexHull(points) {
-            if (points.length < 3) return points;
-        
-            const uniquePoints = [];
-            const seen = new Set();
-            
-            for (const point of points) {
-                const key = `${point.x.toFixed(6)},${point.y.toFixed(6)}`;
-                if (!seen.has(key)) {
-                    seen.add(key);
-                    uniquePoints.push({x: point.x, y: point.y});
+                if (draggingVertex) {
+                    canvas.style.cursor = 'grabbing';
+                    return;
                 }
-            }
-        
-            if (uniquePoints.length < 3) return uniquePoints;
-        
-            let start = uniquePoints[0];
-            for (const point of uniquePoints) {
-                if (point.y < start.y || (point.y === start.y && point.x < start.x)) {
-                    start = point;
+                
+                if (currentTool === 'vertex-select') {
+                    if (hoveredVertex !== null) {
+                        canvas.style.cursor = 'grab';
+                    } else {
+                        canvas.style.cursor = 'default';
+                    }
+                    return;
                 }
-            }
-        
-            const sorted = uniquePoints.filter(p => p !== start).sort((a, b) => {
-                const angleA = Math.atan2(a.y - start.y, a.x - start.x);
-                const angleB = Math.atan2(b.y - start.y, b.x - start.x);
-                if (Math.abs(angleA - angleB) > 1e-10) return angleA - angleB;
-                const distA = Math.hypot(a.x - start.x, a.y - start.y);
-                const distB = Math.hypot(b.x - start.x, b.y - start.y);
-                return distA - distB;
-            });
-        
-            const hull = [start];
-            
-            for (const point of sorted) {
-                while (hull.length >= 2 && crossProduct(hull[hull.length - 2], hull[hull.length - 1], point) <= 0) {
-                    hull.pop();
-                }
-                hull.push(point);
-            }
-        
-            return hull;
-        }
-        
-        function crossProduct(o, a, b) {
-            return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-        }
-        
-        
-        
-        function distanceToSegment(point, segStart, segEnd) {
-            const dx = segEnd.x - segStart.x;
-            const dy = segEnd.y - segStart.y;
-            const lengthSquared = dx * dx + dy * dy;
-            
-            if (lengthSquared === 0) {
-                return calculateSegmentLength(point, segStart);
-            }
-            
-            const t = Math.max(0, Math.min(1, 
-                ((point.x - segStart.x) * dx + (point.y - segStart.y) * dy) / lengthSquared
-            ));
-            
-            const projX = segStart.x + t * dx;
-            const projY = segStart.y + t * dy;
-            
-            return calculateSegmentLength(point, { x: projX, y: projY });
-        }
-        
-        function showPathInfo(path) {
-            const isPolygon = path.type === 'water' || path.type === 'border';
-            
-            if (isPolygon) {
-                const area = calculatePolygonArea(path.points);
-                const perimeter = calculatePathLength([...path.points, path.points[0]]);
-                document.getElementById('selectedDistance').textContent = perimeter.toFixed(2) + ' (perimeter)';
-                document.getElementById('selectedArea').textContent = area.toFixed(2);
-                document.getElementById('areaDisplay').style.display = 'block';
-                document.getElementById('unionBtn').style.display = 'block';
-            } else {
-                const length = calculatePathLength(path.points);
-                document.getElementById('selectedDistance').textContent = length.toFixed(2);
-                document.getElementById('areaDisplay').style.display = 'none';
-                document.getElementById('unionBtn').style.display = 'none';
-            }
-            
-            document.getElementById('selectedType').textContent = path.type.charAt(0).toUpperCase() + path.type.slice(1);
-            document.getElementById('selectedPoints').textContent = path.points.length;
-            document.getElementById('selectedPathInfo').style.display = 'block';
-        }
-
-
-        // Union mode functions
-        function startUnion() {
-            if (!selectedPath) return;
-            if (selectedPath.type !== 'water' && selectedPath.type !== 'border') {
-                alert('Union only works with water bodies and borders');
-                return;
-            }
-        
-            isUnionMode = true;
-            firstUnionPolygon = selectedPath;
-            document.getElementById('unionModeBanner').classList.add('active');
-            document.getElementById('unionModeControls').style.display = 'block';
-            document.getElementById('selectedPathInfo').style.display = 'none';
-            document.getElementById('firstPolygonName').textContent = selectedPath.type.charAt(0).toUpperCase() + selectedPath.type.slice(1) + ' #' + selectedPath.id;
-            updateDrawingStatus('Select second polygon to union');
-            redrawCanvas();
-        }
-        
-        function cancelUnion() {
-            isUnionMode = false;
-            firstUnionPolygon = null;
-            selectedPath = null;
-            document.getElementById('unionModeBanner').classList.remove('active');
-            document.getElementById('unionModeControls').style.display = 'none';
-            document.getElementById('selectedPathInfo').style.display = 'none';
-            updateDrawingStatus('Ready');
-            redrawCanvas();
-        }
-        
-        // Weiler-Atherton Union Algorithm
-        function performUnion(secondPolygon) {
-            if (!firstUnionPolygon || !secondPolygon) return;
-            if (firstUnionPolygon.id === secondPolygon.id) {
-                alert('Cannot union a polygon with itself');
-                return;
-            }
-            if (firstUnionPolygon.type !== secondPolygon.type) {
-                alert('Can only union polygons of the same type');
-                return;
-            }
-        
-            console.log('Starting union...');
-            console.log('First polygon:', firstUnionPolygon.points.length, 'points');
-            console.log('Second polygon:', secondPolygon.points.length, 'points');
-        
-            // Perform Weiler-Atherton polygon union
-            const unionPoints = weilerAthertonUnion(firstUnionPolygon.points, secondPolygon.points);
-        
-            console.log('Union result:', unionPoints.length, 'points');
-        
-            if (unionPoints.length < 3) {
-                alert('Union failed - not enough points in result');
-                cancelUnion();
-                return;
-            }
-        
-            const collection = getCollectionForType(firstUnionPolygon.type);
-            const firstIndex = mapData[collection].findIndex(p => p.id === firstUnionPolygon.id);
-            
-            if (firstIndex === -1) {
-                alert('Error: Could not find first polygon in collection');
-                cancelUnion();
-                return;
-            }
-        
-            mapData[collection][firstIndex].points = unionPoints;
-            firstUnionPolygon.points = unionPoints;
-        
-            const secondIndex = mapData[collection].findIndex(p => p.id === secondPolygon.id);
-            if (secondIndex !== -1) {
-                mapData[collection].splice(secondIndex, 1);
-            }
-        
-            const mergedPolygon = mapData[collection][firstIndex];
-            
-            isUnionMode = false;
-            firstUnionPolygon = null;
-            document.getElementById('unionModeBanner').classList.remove('active');
-            document.getElementById('unionModeControls').style.display = 'none';
-            
-            selectedPath = mergedPolygon;
-            showPathInfo(selectedPath);
-            
-            saveToHistory();
-            updateDrawingStatus('Ready');
-            redrawCanvas();
-            
-            alert(`Polygons merged with ${unionPoints.length} vertices.`);
-        }
-        
-        // start
-        
-        function weilerAthertonUnion(subject, clip) {
-            // Use Greiner-Hormann algorithm instead
-            return greinerHormannUnion(subject, clip);
-        }
-        
-        function greinerHormannUnion(subject, clip) {
-            // Find all intersection points
-            const intersections = findAllIntersections(subject, clip);
-            
-            console.log('Intersections found:', intersections.length);
-            
-            if (intersections.length === 0) {
-                if (isPointInPolygon(subject[0], clip)) {
-                    return clip;
-                } else if (isPointInPolygon(clip[0], subject)) {
-                    return subject;
+                
+                if (isEditMode) {
+                    if (hoveredVertex !== null) {
+                        canvas.style.cursor = 'move';
+                    } else {
+                        canvas.style.cursor = 'pointer';
+                    }
+                } else if (currentTool === 'city') {
+                    canvas.style.cursor = 'pointer';
                 } else {
-                    return convexHull([...subject, ...clip]);
+                    canvas.style.cursor = 'crosshair';
                 }
             }
             
-            // Create vertex lists with intersections inserted
-            const subjectList = createVertexList(subject, intersections, true, clip);
-            const clipList = createVertexList(clip, intersections, false, subject);
-            
-            // Link intersection vertices between the two lists
-            linkIntersectionVertices(subjectList, clipList);
-            
-            // Find starting point (must be outside for union)
-            let current = findStartVertex(subjectList, clipList, true);
-            
-            if (!current) {
-                console.warn('No start vertex found');
-                return convexHull([...subject, ...clip]);
+            function updateZoomDisplay() {
+                const zoomPercent = Math.round(zoomLevel * 100);
+                document.getElementById('zoomLevel').textContent = zoomPercent;
+                document.getElementById('zoomDisplay').textContent = zoomPercent + '%';
+                document.getElementById('scaleDisplay').textContent = (baseScale * zoomLevel).toFixed(2) + ' px/km';
             }
             
-            // Trace the union boundary
-            const result = [];
-            const startVertex = current;
-            let currentList = subjectList.includes(current) ? subjectList : clipList;
-            
-            let iterations = 0;
-            const maxIterations = (subjectList.length + clipList.length) * 2;
-            
-            do {
-                iterations++;
-                if (iterations > maxIterations) break;
+            function zoomIn() {
+                const centerX = canvas.width / 2;
+                const centerY = canvas.height / 2;
                 
-                result.push({ x: current.x, y: current.y });
+                const newZoom = Math.min(50, zoomLevel + 0.01);
+                viewOffsetX = centerX - (centerX - viewOffsetX) * (newZoom / zoomLevel);
+                viewOffsetY = centerY - (centerY - viewOffsetY) * (newZoom / zoomLevel);
                 
-                // Mark as visited
-                current.visited = true;
-                if (current.neighbor) current.neighbor.visited = true;
+                zoomLevel = newZoom;
+                updateZoomDisplay();
+                redrawCanvas();
+            }
+            
+            function zoomOut() {
+                const centerX = canvas.width / 2;
+                const centerY = canvas.height / 2;
                 
-                // Determine next vertex
-                if (current.isIntersection) {
-                    // At intersection: for union, take the path that goes outside
-                    const nextInCurrent = getNextVertex(current, currentList);
-                    
-                    // Check if we should switch polygons
-                    if (current.neighbor && !nextInCurrent.isIntersection && nextInCurrent.inside) {
-                        // Next vertex on current path is inside, switch to other polygon
-                        current = current.neighbor;
-                        currentList = clipList.includes(current) ? clipList : subjectList;
-                    }
-                }
+                const newZoom = Math.max(0.01, zoomLevel - 0.01);
+                viewOffsetX = centerX - (centerX - viewOffsetX) * (newZoom / zoomLevel);
+                viewOffsetY = centerY - (centerY - viewOffsetY) * (newZoom / zoomLevel);
                 
-                // Move to next vertex
-                current = getNextVertex(current, currentList);
+                zoomLevel = newZoom;
+                updateZoomDisplay();
+                redrawCanvas();
+            }
+            
+            function resetZoom() {
+                zoomLevel = 1.0;
+                viewOffsetX = 0;
+                viewOffsetY = 0;
+                updateZoomDisplay();
+                redrawCanvas();
+            }
+            
+            // Edit mode functions
+            function enterEditMode() {
+                if (!selectedPath) return;
                 
-            } while (current !== startVertex && iterations < maxIterations);
-            
-            if (result.length < 3) {
-                return convexHull([...subject, ...clip]);
+                isEditMode = true;
+                editingPath = selectedPath;
+                extendingFromVertex = null;
+                document.getElementById('editModeBanner').classList.add('active');
+                document.getElementById('editModeControls').style.display = 'block';
+                document.getElementById('selectedPathInfo').style.display = 'none';
+                updateDrawingStatus('Edit mode');
+                updateCursor();
+                redrawCanvas();
             }
             
-            return result;
-        }
-        
-        function createVertexList(polygon, intersections, isSubject, otherPolygon) {
-            const vertices = [];
-            
-            for (let i = 0; i < polygon.length; i++) {
-                const p = polygon[i];
-                const next = polygon[(i + 1) % polygon.length];
-                
-                // Add original vertex
-                const vertex = {
-                    x: p.x,
-                    y: p.y,
-                    isIntersection: false,
-                    inside: isPointInPolygon(p, otherPolygon),
-                    visited: false,
-                    neighbor: null,
-                    next: null,
-                    prev: null,
-                    alpha: 0 // position along edge [0-1]
-                };
-                vertices.push(vertex);
-                
-                // Find intersections on this edge
-                const edgeIntersections = [];
-                for (const int of intersections) {
-                    const edgeIndex = isSubject ? int.edge1 : int.edge2;
-                    if (edgeIndex === i) {
-                        // Calculate alpha (position along edge)
-                        const dx = next.x - p.x;
-                        const dy = next.y - p.y;
-                        const len = Math.sqrt(dx * dx + dy * dy);
-                        const dist = Math.sqrt(
-                            (int.point.x - p.x) ** 2 + (int.point.y - p.y) ** 2
-                        );
-                        const alpha = len > 0 ? dist / len : 0;
-                        
-                        edgeIntersections.push({
-                            point: int.point,
-                            alpha: alpha,
-                            edge1: int.edge1,
-                            edge2: int.edge2
-                        });
-                    }
-                }
-                
-                // Sort intersections by alpha
-                edgeIntersections.sort((a, b) => a.alpha - b.alpha);
-                
-                // Add intersection vertices
-                for (const int of edgeIntersections) {
-                    const intVertex = {
-                        x: int.point.x,
-                        y: int.point.y,
-                        isIntersection: true,
-                        inside: false, // Intersections are on boundary
-                        visited: false,
-                        neighbor: null,
-                        next: null,
-                        prev: null,
-                        alpha: int.alpha,
-                        edge1: int.edge1,
-                        edge2: int.edge2
-                    };
-                    vertices.push(intVertex);
-                }
-            }
-            
-            // Link vertices in circular list
-            for (let i = 0; i < vertices.length; i++) {
-                vertices[i].next = vertices[(i + 1) % vertices.length];
-                vertices[i].prev = vertices[(i - 1 + vertices.length) % vertices.length];
-            }
-            
-            return vertices;
-        }
-        
-        function linkIntersectionVertices(subjectList, clipList) {
-            const subjectIntersections = subjectList.filter(v => v.isIntersection);
-            const clipIntersections = clipList.filter(v => v.isIntersection);
-            
-            for (const sv of subjectIntersections) {
-                for (const cv of clipIntersections) {
-                    const dx = sv.x - cv.x;
-                    const dy = sv.y - cv.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    
-                    if (dist < 0.0001) {
-                        sv.neighbor = cv;
-                        cv.neighbor = sv;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        function findStartVertex(subjectList, clipList, forUnion) {
-            // For union, find a vertex that's outside the other polygon
-            // For intersection, find a vertex that's inside the other polygon
-            
-            for (const v of subjectList) {
-                if (!v.isIntersection && !v.inside && forUnion) {
-                    return v;
-                }
-            }
-            
-            for (const v of clipList) {
-                if (!v.isIntersection && !v.inside && forUnion) {
-                    return v;
-                }
-            }
-            
-            // Fallback to first vertex
-            return subjectList[0];
-        }
-        
-        function getNextVertex(current, list) {
-            return current.next || list[(list.indexOf(current) + 1) % list.length];
-        }
-        
-        function findAllIntersections(poly1, poly2) {
-            const intersections = [];
-            
-            for (let i = 0; i < poly1.length; i++) {
-                const p1Start = poly1[i];
-                const p1End = poly1[(i + 1) % poly1.length];
-                
-                for (let j = 0; j < poly2.length; j++) {
-                    const p2Start = poly2[j];
-                    const p2End = poly2[(j + 1) % poly2.length];
-                    
-                    const intersection = lineSegmentIntersection(p1Start, p1End, p2Start, p2End);
-                    
-                    if (intersection && intersection.t1 > 0.0001 && intersection.t1 < 0.9999) {
-                        intersections.push({
-                            point: intersection.point,
-                            edge1: i,
-                            edge2: j
-                        });
-                    }
-                }
-            }
-            
-            return intersections;
-        }
-        
-        
-        // end
-        
-        function insertIntersections(polygon, intersections, isFirst) {
-            const result = [];
-            
-            for (let i = 0; i < polygon.length; i++) {
-                // Add the original vertex
-                result.push({
-                    point: { x: polygon[i].x, y: polygon[i].y },
-                    isIntersection: false,
-                    visited: false,
-                    inside: false,
-                    neighbor: null
-                });
-                
-                // Find intersections on the edge from i to i+1
-                const edgeIntersections = intersections.filter(int => 
-                    (isFirst && int.edge1 === i) || (!isFirst && int.edge2 === i)
-                );
-                
-                // Sort by distance along the edge
-                edgeIntersections.sort((a, b) => {
-                    const p1 = polygon[i];
-                    const p2 = polygon[(i + 1) % polygon.length];
-                    const distA = Math.hypot(a.point.x - p1.x, a.point.y - p1.y);
-                    const distB = Math.hypot(b.point.x - p1.x, b.point.y - p1.y);
-                    return distA - distB;
-                });
-                
-                // Add intersection points
-                for (const int of edgeIntersections) {
-                    const intVertex = {
-                        point: { x: int.point.x, y: int.point.y },
-                        isIntersection: true,
-                        visited: false,
-                        inside: false,
-                        neighbor: null,
-                        intersectionId: `${int.edge1}-${int.edge2}` // To link with neighbor
-                    };
-                    result.push(intVertex);
-                }
-            }
-            
-            return result;
-        }
-        
-        function markVertices(vertices, otherPolygon) {
-            for (const v of vertices) {
-                if (!v.isIntersection) {
-                    v.inside = isPointInPolygon(v.point, otherPolygon);
-                }
-            }
-        }
-        
-        function findAllIntersections(poly1, poly2) {
-            const intersections = [];
-            
-            for (let i = 0; i < poly1.length; i++) {
-                const p1Start = poly1[i];
-                const p1End = poly1[(i + 1) % poly1.length];
-                
-                for (let j = 0; j < poly2.length; j++) {
-                    const p2Start = poly2[j];
-                    const p2End = poly2[(j + 1) % poly2.length];
-                    
-                    const intersection = lineSegmentIntersection(p1Start, p1End, p2Start, p2End);
-                    
-                    if (intersection && intersection.t1 > 0.0001 && intersection.t1 < 0.9999) {
-                        intersections.push({
-                            point: intersection.point,
-                            edge1: i,
-                            edge2: j
-                        });
-                    }
-                }
-            }
-            
-            return intersections;
-        }
-
-        function linkIntersectionNeighbors(subjectVertices, clipVertices) {
-            const subjectIntersections = subjectVertices.filter(v => v.isIntersection);
-            const clipIntersections = clipVertices.filter(v => v.isIntersection);
-            
-            for (const sv of subjectIntersections) {
-                for (const cv of clipIntersections) {
-                    if (sv.intersectionId && cv.intersectionId) {
-                        const [s1, c1] = sv.intersectionId.split('-').map(Number);
-                        const [s2, c2] = cv.intersectionId.split('-').map(Number);
-                        
-                        if (s1 === s2 && c1 === c2) {
-                            sv.neighbor = cv;
-                            cv.neighbor = sv;
-                            break;
-                        }
-                    }
-                }
-            }
-        }        
-        function buildVertexList(poly, otherPoly, isSubject) {
-            const vertices = [];
-            
-            for (let i = 0; i < poly.length; i++) {
-                const current = poly[i];
-                const next = poly[(i + 1) % poly.length];
-                
-                vertices.push({
-                    point: { x: current.x, y: current.y },
-                    isIntersection: false,
-                    isEntry: false,
-                    neighbor: null,
-                    visited: false,
-                    index: i
-                });
-                
-                const intersections = [];
-                
-                for (let j = 0; j < otherPoly.length; j++) {
-                    const otherCurrent = otherPoly[j];
-                    const otherNext = otherPoly[(j + 1) % otherPoly.length];
-                    
-                    const intersection = lineSegmentIntersection(current, next, otherCurrent, otherNext);
-                    
-                    if (intersection && intersection.t1 > 0.0001 && intersection.t1 < 0.9999) {
-                        intersections.push({
-                            point: intersection.point,
-                            t: intersection.t1,
-                            otherEdge: j
-                        });
-                    }
-                }
-                
-                intersections.sort((a, b) => a.t - b.t);
-                
-                for (const int of intersections) {
-                    const edgeVector = { x: next.x - current.x, y: next.y - current.y };
-                    const otherEdgeStart = otherPoly[int.otherEdge];
-                    const otherEdgeEnd = otherPoly[(int.otherEdge + 1) % otherPoly.length];
-                    const otherEdgeVector = { 
-                        x: otherEdgeEnd.x - otherEdgeStart.x, 
-                        y: otherEdgeEnd.y - otherEdgeStart.y 
-                    };
-                    
-                    const cross = edgeVector.x * otherEdgeVector.y - edgeVector.y * otherEdgeVector.x;
-                    const isEntry = isSubject ? cross < 0 : cross > 0;
-                    
-                    vertices.push({
-                        point: int.point,
-                        isIntersection: true,
-                        isEntry: isEntry,
-                        neighbor: null,
-                        visited: false,
-                        otherEdge: int.otherEdge,
-                        t: int.t
-                    });
-                }
-            }
-            
-            return vertices;
-        }
-        
-        function linkIntersections(subjectVertices, clipVertices) {
-            const subjectIntersections = subjectVertices.filter(v => v.isIntersection);
-            const clipIntersections = clipVertices.filter(v => v.isIntersection);
-            
-            for (const sv of subjectIntersections) {
-                for (const cv of clipIntersections) {
-                    const dx = sv.point.x - cv.point.x;
-                    const dy = sv.point.y - cv.point.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    
-                    if (dist < 0.0001) {
-                        sv.neighbor = cv;
-                        cv.neighbor = sv;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        function traceUnion(subjectVertices, clipVertices) {
-            let current = null;
-            for (const v of subjectVertices) {
-                if (v.isIntersection && !v.visited) {
-                    current = v;
-                    break;
-                }
-            }
-            
-            if (!current) {
-                return subjectVertices.map(v => v.point);
-            }
-            
-            const result = [];
-            let currentList = subjectVertices;
-            let startVertex = current;
-            let iterations = 0;
-            const maxIterations = (subjectVertices.length + clipVertices.length) * 2;
-            
-            while (iterations < maxIterations) {
-                iterations++;
-                
-                result.push({ x: current.point.x, y: current.point.y });
-                current.visited = true;
-                
-                let currentIndex = currentList.indexOf(current);
-                let nextIndex = (currentIndex + 1) % currentList.length;
-                let next = currentList[nextIndex];
-                
-                if (next.isIntersection && next.neighbor && !next.visited) {
-                    current = next.neighbor;
-                    currentList = (currentList === subjectVertices) ? clipVertices : subjectVertices;
-                } else {
-                    current = next;
-                }
-                
-                if (current === startVertex || 
-                    (Math.abs(current.point.x - startVertex.point.x) < 0.0001 && 
-                     Math.abs(current.point.y - startVertex.point.y) < 0.0001)) {
-                    break;
-                }
-            }
-            
-            if (iterations >= maxIterations) {
-                console.warn('Union trace exceeded max iterations');
-            }
-            
-            return result;
-        }
-        
-        function lineSegmentIntersection(p1, p2, p3, p4) {
-            const x1 = p1.x, y1 = p1.y;
-            const x2 = p2.x, y2 = p2.y;
-            const x3 = p3.x, y3 = p3.y;
-            const x4 = p4.x, y4 = p4.y;
-            
-            const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
-            
-            if (Math.abs(denom) < 1e-10) {
-                return null;
-            }
-            
-            const t1 = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
-            const t2 = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
-            
-            if (t1 >= 0 && t1 <= 1 && t2 >= 0 && t2 <= 1) {
-                return {
-                    point: {
-                        x: x1 + t1 * (x2 - x1),
-                        y: y1 + t1 * (y2 - y1)
-                    },
-                    t1: t1,
-                    t2: t2
-                };
-            }
-            
-            return null;
-        }
-        
-        function isPointInPolygon(point, polygon) {
-            let inside = false;
-            for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-                const xi = polygon[i].x, yi = polygon[i].y;
-                const xj = polygon[j].x, yj = polygon[j].y;
-                
-                const intersect = ((yi > point.y) !== (yj > point.y))
-                    && (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi);
-                if (intersect) inside = !inside;
-            }
-            return inside;
-        }
-        
-        function convexHull(points) {
-            if (points.length < 3) return points;
-        
-            const uniquePoints = [];
-            const seen = new Set();
-            
-            for (const point of points) {
-                const key = `${point.x.toFixed(6)},${point.y.toFixed(6)}`;
-                if (!seen.has(key)) {
-                    seen.add(key);
-                    uniquePoints.push({x: point.x, y: point.y});
-                }
-            }
-        
-            if (uniquePoints.length < 3) return uniquePoints;
-        
-            let start = uniquePoints[0];
-            for (const point of uniquePoints) {
-                if (point.y < start.y || (point.y === start.y && point.x < start.x)) {
-                    start = point;
-                }
-            }
-        
-            const sorted = uniquePoints.filter(p => p !== start).sort((a, b) => {
-                const angleA = Math.atan2(a.y - start.y, a.x - start.x);
-                const angleB = Math.atan2(b.y - start.y, b.x - start.x);
-                if (Math.abs(angleA - angleB) > 1e-10) return angleA - angleB;
-                const distA = Math.hypot(a.x - start.x, a.y - start.y);
-                const distB = Math.hypot(b.x - start.x, b.y - start.y);
-                return distA - distB;
-            });
-        
-            const hull = [start];
-            
-            for (const point of sorted) {
-                while (hull.length >= 2 && crossProduct(hull[hull.length - 2], hull[hull.length - 1], point) <= 0) {
-                    hull.pop();
-                }
-                hull.push(point);
-            }
-        
-            return hull;
-        }
-        
-        function crossProduct(o, a, b) {
-            return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-        }
-
-
-        
-        function deleteSelected() {
-            if (!selectedPath) return;
-        
-            if (!confirm('Delete this entire path?')) return;
-        
-            const collections = ['highways', 'roads', 'rivers', 'waterBodies', 'borders'];
-            for (const collection of collections) {
-                const index = mapData[collection].findIndex(p => p.id === selectedPath.id);
-                if (index !== -1) {
-                    mapData[collection].splice(index, 1);
-                    break;
-                }
-            }
-        
-            selectedPath = null;
-            document.getElementById('selectedPathInfo').style.display = 'none';
-            saveToHistory();
-            redrawCanvas();
-        }
-        
-        function drawPreviewPoint(pos) {
-            if (currentPathPoints.length === 0) return;
-        
-            const lastPoint = currentPathPoints[currentPathPoints.length - 1];
-            const lastScreen = worldToScreen(lastPoint.x, lastPoint.y);
-            const posScreen = worldToScreen(pos.x, pos.y);
-            
-            ctx.save();
-            ctx.setLineDash([5, 5]);
-            ctx.strokeStyle = '#95a5a6';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(lastScreen.x, lastScreen.y);
-            ctx.lineTo(posScreen.x, posScreen.y);
-            ctx.stroke();
-            ctx.restore();
-        
-            const dist = calculateSegmentLength(lastPoint, pos);
-            const midX = (lastScreen.x + posScreen.x) / 2;
-            const midY = (lastScreen.y + posScreen.y) / 2;
-        
-            ctx.fillStyle = '#2c3e50';
-            ctx.font = '12px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText(`${dist.toFixed(2)} km`, midX, midY - 5);
-        }
-        
-        function drawExtensionPreview(pos) {
-            if (!extendingFromVertex) return;
-        
-            const lastPoint = extendingFromVertex.path.points[extendingFromVertex.vertexIndex];
-            const lastScreen = worldToScreen(lastPoint.x, lastPoint.y);
-            const posScreen = worldToScreen(pos.x, pos.y);
-            
-            ctx.save();
-            ctx.setLineDash([5, 5]);
-            ctx.strokeStyle = '#e74c3c';
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.moveTo(lastScreen.x, lastScreen.y);
-            ctx.lineTo(posScreen.x, posScreen.y);
-            ctx.stroke();
-            ctx.restore();
-        
-            const dist = calculateSegmentLength(lastPoint, pos);
-            const midX = (lastScreen.x + posScreen.x) / 2;
-            const midY = (lastScreen.y + posScreen.y) / 2;
-        
-            ctx.fillStyle = '#e74c3c';
-            ctx.font = 'bold 12px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText(`${dist.toFixed(2)} km`, midX, midY - 5);
-        }
-        
-        function clearCanvas() {
-            if (confirm('Are you sure you want to clear the entire map?')) {
-                mapData = {
-                    highways: [],
-                    roads: [],
-                    rivers: [],
-                    waterBodies: [],
-                    borders: [],
-                    cities: []
-                };
-                history = [];
-                selectedPath = null;
-                isDrawingPath = false;
-                currentPathPoints = [];
+            function exitEditMode() {
                 isEditMode = false;
                 editingPath = null;
+                hoveredVertex = null;
+                hoveredEditSegment = null;
                 extendingFromVertex = null;
-                document.getElementById('selectedPathInfo').style.display = 'none';
-                document.getElementById('editModeControls').style.display = 'none';
+                draggingVertex = null;
+                dragVertexIndex = -1;
+                dragPath = null;
                 document.getElementById('editModeBanner').classList.remove('active');
+                document.getElementById('editModeControls').style.display = 'none';
+                updateDrawingStatus('Ready');
+                updateCursor();
                 saveToHistory();
                 redrawCanvas();
             }
-        }
-        
-        function saveToHistory() {
-            history.push(JSON.parse(JSON.stringify(mapData)));
-            if (history.length > 50) {
-                history.shift();
+            
+            function findVertexAtPoint(pos, path, tolerance = 0.5) {
+                for (let i = 0; i < path.points.length; i++) {
+                    const dist = calculateSegmentLength(pos, path.points[i]);
+                    if (dist < tolerance) {
+                        return i;
+                    }
+                }
+                return null;
             }
-        }
-        
-        function undo() {
-            if (history.length > 1) {
-                history.pop();
-                mapData = JSON.parse(JSON.stringify(history[history.length - 1]));
-                selectedPath = null;
-                isEditMode = false;
-                editingPath = null;
-                extendingFromVertex = null;
-                document.getElementById('selectedPathInfo').style.display = 'none';
-                document.getElementById('editModeControls').style.display = 'none';
-                document.getElementById('editModeBanner').classList.remove('active');
+            
+            function findEditSegmentAtPoint(pos, path, tolerance = 0.3) {
+                for (let i = 1; i < path.points.length; i++) {
+                    const dist = distanceToSegment(pos, path.points[i-1], path.points[i]);
+                    if (dist < tolerance) {
+                        return { start: i - 1, end: i };
+                    }
+                }
+                return null;
+            }
+            
+            function findInsertionPoint(pos, path, tolerance = 0.5) {
+                for (let i = 1; i < path.points.length; i++) {
+                    const dist = distanceToSegment(pos, path.points[i-1], path.points[i]);
+                    if (dist < tolerance) {
+                        return { index: i, segment: { start: i-1, end: i } };
+                    }
+                }
+                return null;
+            }
+            
+            function deleteVertex(vertexIndex) {
+                if (!editingPath || editingPath.points.length <= 2) {
+                    alert('Cannot delete vertex - path must have at least 2 points');
+                    return;
+                }
+                editingPath.points.splice(vertexIndex, 1);
+            }
+            
+            function deleteSegment(segment) {
+                if (!editingPath) return;
+                
+                const beforePoints = editingPath.points.slice(0, segment.start + 1);
+                const afterPoints = editingPath.points.slice(segment.end);
+                
+                const beforeValid = beforePoints.length >= 2;
+                const afterValid = afterPoints.length >= 2;
+                
+                if (!beforeValid && !afterValid) {
+                    const collections = ['highways', 'roads', 'rivers', 'waterBodies', 'borders'];
+                    for (const collection of collections) {
+                        const index = mapData[collection].findIndex(p => p.id === editingPath.id);
+                        if (index !== -1) {
+                            mapData[collection].splice(index, 1);
+                            exitEditMode();
+                            return;
+                        }
+                    }
+                } else if (beforeValid && afterValid) {
+                    editingPath.points = beforePoints;
+                    
+                    const newPath = {
+                        id: nextId++,
+                        points: afterPoints,
+                        type: editingPath.type
+                    };
+                    
+                    const collection = getCollectionForType(editingPath.type);
+                    mapData[collection].push(newPath);
+                } else if (beforeValid) {
+                    editingPath.points = beforePoints;
+                } else if (afterValid) {
+                    editingPath.points = afterPoints;
+                }
+                
                 redrawCanvas();
             }
-        }
-        
-        function exportMap() {
-            const link = document.createElement('a');
-            link.download = 'map-design.png';
-            link.href = canvas.toDataURL('image/png');
-            link.click();
-        }
-        
-        function exportJSON() {
-            const dataStr = JSON.stringify(mapData, null, 2);
-            const blob = new Blob([dataStr], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.download = 'map-data.json';
-            link.href = url;
-            link.click();
-            URL.revokeObjectURL(url);
-        }
-        
-        function redrawCanvas() {
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    ctx.fillStyle = '#f8f9fa';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-                    drawGrid();
-        
-                    drawAllPolygons(mapData.waterBodies);
-                    drawAllPaths(mapData.rivers, 'river');
-                    drawAllPaths(mapData.roads, 'road');
-                    drawAllPaths(mapData.highways, 'highway');
-                    drawAllPolygons(mapData.borders, true);
-        
-                    mapData.cities.forEach(city => drawCity(city));
-        
-                    if (isDrawingPath && currentPathPoints.length > 0) {
-                        drawPath(currentPathPoints, currentTool, false, true);
-                    }
-        
-                    if (selectedPath && !isEditMode) {
-                        if (selectedPath.type === 'water' || selectedPath.type === 'border') {
-                            drawPolygon(selectedPath.points, true, selectedPath.type === 'border');
-                        } else {
-                            drawPath(selectedPath.points, selectedPath.type, true, false);
-                        }
-                    }
-                    
-                    if (isUnionMode && firstUnionPolygon) {
-                        if (firstUnionPolygon.type === 'water' || firstUnionPolygon.type === 'border') {
-                            drawPolygon(firstUnionPolygon.points, true, firstUnionPolygon.type === 'border');
-                        }
-                    }
-        
-                    if (isEditMode && editingPath) {
-                        if (editingPath.type === 'water' || editingPath.type === 'border') {
-                            drawPolygon(editingPath.points, true, editingPath.type === 'border', true);
-                        } else {
-                            drawPath(editingPath.points, editingPath.type, true, false, true);
-                        }
-                    }
-        
-                    if (hoveredPath && hoveredPath !== selectedPath && hoveredSegment && !isEditMode) {
-                        const points = hoveredPath.points;
-                        const seg = hoveredSegment;
-                        if (seg.end === 0) {
-                            drawPathSegment(points[seg.start], points[0], hoveredPath.type, true);
-                        } else {
-                            drawPathSegment(points[seg.start], points[seg.end], hoveredPath.type, true);
-                        }
-                    }
-                    
-                    
+    
+            function insertVertex(index, pos) {
+                if (!editingPath) return;
+                editingPath.points.splice(index, 0, pos);
+            }
+            
+            function joinPaths(fromVertex, toVertex) {
+                if (!editingPath) return;
+                
+                if (fromVertex !== 0 && fromVertex !== editingPath.points.length - 1) return;
+                if (toVertex !== 0 && toVertex !== editingPath.points.length - 1) return;
+                
+                if (fromVertex === toVertex) {
+                    return;
                 }
-        
-                function drawGrid() {
+                
+                if (fromVertex === 0) {
+                    editingPath.points.reverse();
+                }
+                
+                extendingFromVertex = null;
+                updateDrawingStatus('Paths joined');
+            }
+            
+            function getCollectionForType(type) {
+                switch(type) {
+                    case 'highway': return 'highways';
+                    case 'road': return 'roads';
+                    case 'river': return 'rivers';
+                    case 'water': return 'waterBodies';
+                    case 'border': return 'borders';
+                    default: return 'highways';
+                }
+            }
+            
+            function setTool(tool, buttonElement) {
+                if (isEditMode) {
+                    exitEditMode();
+                }
+                
+                if (isDrawingPath && tool !== currentTool) {
+                    finishCurrentPath();
+                }
+    
+                currentTool = tool;
+                
+                // Clear any dragging state when switching tools
+                draggingVertex = null;
+                dragVertexIndex = -1;
+                dragPath = null;
+                hoveredVertex = null;
+                hoveredPath = null;
+                
+                document.querySelectorAll('.tool-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                buttonElement.classList.add('active');
+    
+                const toolNames = {
+                    'highway': 'Highway',
+                    'road': 'Road',
+                    'river': 'River',
+                    'water': 'Water Body',
+                    'border': 'Border',
+                    'city': 'City',
+                    'vertex-select': 'Vertex Select'
+                };
+                document.getElementById('currentToolDisplay').textContent = toolNames[tool];
+    
+                updateCursor();
+                updateDrawingStatus('Ready');
+                redrawCanvas();
+            }
+    
+            function updateDrawingStatus(status) {
+                document.getElementById('drawingStatus').textContent = status;
+            }
+    
+            function finishCurrentPath() {
+                if (!isDrawingPath || currentPathPoints.length < 2) {
+                    isDrawingPath = false;
+                    currentPathPoints = [];
+                    updateDrawingStatus('Ready');
+                    return;
+                }
+    
+                const pathData = {
+                    id: nextId++,
+                    points: [...currentPathPoints],
+                    type: currentTool
+                };
+    
+                const collection = getCollectionForType(currentTool);
+                mapData[collection].push(pathData);
+    
+                isDrawingPath = false;
+                currentPathPoints = [];
+                saveToHistory();
+                redrawCanvas();
+                updateDrawingStatus('Ready');
+            }
+    
+            function cancelCurrentPath() {
+                isDrawingPath = false;
+                currentPathPoints = [];
+                redrawCanvas();
+                updateDrawingStatus('Ready');
+            }
+    
+            function placeCity(pos) {
+                const cityName = document.getElementById('cityName').value || 'Unnamed City';
+                
+                mapData.cities.push({
+                    id: nextId++,
+                    name: cityName,
+                    x: pos.x,
+                    y: pos.y
+                });
+    
+                saveToHistory();
+                redrawCanvas();
+            }
+    
+            function calculatePathLength(points) {
+                let totalLength = 0;
+                for (let i = 1; i < points.length; i++) {
+                    totalLength += calculateSegmentLength(points[i-1], points[i]);
+                }
+                return totalLength;
+            }
+    
+            function calculateSegmentLength(p1, p2) {
+                const dx = p2.x - p1.x;
+                const dy = p2.y - p1.y;
+                return Math.sqrt(dx * dx + dy * dy);
+            }
+    
+            function calculatePolygonArea(points) {
+                if (points.length < 3) return 0;
+                
+                let area = 0;
+                for (let i = 0; i < points.length; i++) {
+                    const j = (i + 1) % points.length;
+                    area += points[i].x * points[j].y;
+                    area -= points[j].x * points[i].y;
+                }
+                return Math.abs(area / 2);
+            }
+    
+            function findPathAndSegmentAtPoint(pos, tolerance = 0.5) {
+                const allPaths = [
+                    ...mapData.borders.map(p => ({...p, collection: 'borders'})),
+                    ...mapData.highways.map(p => ({...p, collection: 'highways'})),
+                    ...mapData.roads.map(p => ({...p, collection: 'roads'})),
+                    ...mapData.rivers.map(p => ({...p, collection: 'rivers'})),
+                    ...mapData.waterBodies.map(p => ({...p, collection: 'waterBodies'}))
+                ].reverse();
+    
+                for (const path of allPaths) {
+                    for (let i = 1; i < path.points.length; i++) {
+                        const dist = distanceToSegment(pos, path.points[i-1], path.points[i]);
+                        if (dist < tolerance) {
+                            return {
+                                path: path,
+                                segment: { start: i - 1, end: i },
+                                segmentLength: calculateSegmentLength(path.points[i-1], path.points[i])
+                            };
+                        }
+                    }
+                    
+                    if (path.type === 'water' || path.type === 'border') {
+                        const dist = distanceToSegment(pos, path.points[path.points.length - 1], path.points[0]);
+                        if (dist < tolerance) {
+                            return {
+                                path: path,
+                                segment: { start: path.points.length - 1, end: 0 },
+                                segmentLength: calculateSegmentLength(path.points[path.points.length - 1], path.points[0])
+                            };
+                        }
+                    }
+                }
+                return null;
+            }
+    
+            function distanceToSegment(point, segStart, segEnd) {
+                const dx = segEnd.x - segStart.x;
+                const dy = segEnd.y - segStart.y;
+                const lengthSquared = dx * dx + dy * dy;
+                
+                if (lengthSquared === 0) {
+                    return calculateSegmentLength(point, segStart);
+                }
+                
+                const t = Math.max(0, Math.min(1, 
+                    ((point.x - segStart.x) * dx + (point.y - segStart.y) * dy) / lengthSquared
+                ));
+                
+                const projX = segStart.x + t * dx;
+                const projY = segStart.y + t * dy;
+                
+                return calculateSegmentLength(point, { x: projX, y: projY });
+            }
+    
+            function showPathInfo(path) {
+                const isPolygon = path.type === 'water' || path.type === 'border';
+                
+                if (isPolygon) {
+                    const area = calculatePolygonArea(path.points);
+                    const perimeter = calculatePathLength([...path.points, path.points[0]]);
+                    document.getElementById('selectedDistance').textContent = perimeter.toFixed(2) + ' (perimeter)';
+                    document.getElementById('selectedArea').textContent = area.toFixed(2);
+                    document.getElementById('areaDisplay').style.display = 'block';
+                } else {
+                    const length = calculatePathLength(path.points);
+                    document.getElementById('selectedDistance').textContent = length.toFixed(2);
+                    document.getElementById('areaDisplay').style.display = 'none';
+                }
+                
+                document.getElementById('selectedType').textContent = path.type.charAt(0).toUpperCase() + path.type.slice(1);
+                document.getElementById('selectedPoints').textContent = path.points.length;
+                document.getElementById('selectedPathInfo').style.display = 'block';
+            }
+    
+            function deleteSelected() {
+                if (!selectedPath) return;
+    
+                if (!confirm('Delete this entire path?')) return;
+    
+                const collections = ['highways', 'roads', 'rivers', 'waterBodies', 'borders'];
+                for (const collection of collections) {
+                    const index = mapData[collection].findIndex(p => p.id === selectedPath.id);
+                    if (index !== -1) {
+                        mapData[collection].splice(index, 1);
+                        break;
+                    }
+                }
+    
+                selectedPath = null;
+                document.getElementById('selectedPathInfo').style.display = 'none';
+                saveToHistory();
+                redrawCanvas();
+            }
+    
+            function drawPreviewPoint(pos) {
+                if (currentPathPoints.length === 0) return;
+    
+                const lastPoint = currentPathPoints[currentPathPoints.length - 1];
+                const lastScreen = worldToScreen(lastPoint.x, lastPoint.y);
+                const posScreen = worldToScreen(pos.x, pos.y);
+                
+                ctx.save();
+                ctx.setLineDash([5, 5]);
+                ctx.strokeStyle = '#95a5a6';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(lastScreen.x, lastScreen.y);
+                ctx.lineTo(posScreen.x, posScreen.y);
+                ctx.stroke();
+                ctx.restore();
+    
+                const dist = calculateSegmentLength(lastPoint, pos);
+                const midX = (lastScreen.x + posScreen.x) / 2;
+                const midY = (lastScreen.y + posScreen.y) / 2;
+    
+                ctx.fillStyle = '#2c3e50';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(`${dist.toFixed(2)} km`, midX, midY - 5);
+            }
+    
+            function drawExtensionPreview(pos) {
+                if (!extendingFromVertex) return;
+    
+                const lastPoint = extendingFromVertex.path.points[extendingFromVertex.vertexIndex];
+                const lastScreen = worldToScreen(lastPoint.x, lastPoint.y);
+                const posScreen = worldToScreen(pos.x, pos.y);
+                
+                ctx.save();
+                ctx.setLineDash([5, 5]);
+                ctx.strokeStyle = '#e74c3c';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(lastScreen.x, lastScreen.y);
+                ctx.lineTo(posScreen.x, posScreen.y);
+                ctx.stroke();
+                ctx.restore();
+    
+                const dist = calculateSegmentLength(lastPoint, pos);
+                const midX = (lastScreen.x + posScreen.x) / 2;
+                const midY = (lastScreen.y + posScreen.y) / 2;
+    
+                ctx.fillStyle = '#e74c3c';
+                ctx.font = 'bold 12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(`${dist.toFixed(2)} km`, midX, midY - 5);
+            }
+    
+            function clearCanvas() {
+                if (confirm('Are you sure you want to clear the entire map?')) {
+                    mapData = {
+                        highways: [],
+                        roads: [],
+                        rivers: [],
+                        waterBodies: [],
+                        borders: [],
+                        cities: []
+                    };
+                    history = [];
+                    selectedPath = null;
+                    isDrawingPath = false;
+                    currentPathPoints = [];
+                    isEditMode = false;
+                    editingPath = null;
+                    extendingFromVertex = null;
+                    draggingVertex = null;
+                    dragVertexIndex = -1;
+                    dragPath = null;
+                    document.getElementById('selectedPathInfo').style.display = 'none';
+                    document.getElementById('editModeControls').style.display = 'none';
+                    document.getElementById('editModeBanner').classList.remove('active');
+                    saveToHistory();
+                    redrawCanvas();
+                }
+            }
+    
+            function saveToHistory() {
+                history.push(JSON.parse(JSON.stringify(mapData)));
+                if (history.length > 50) {
+                    history.shift();
+                }
+            }
+    
+            function undo() {
+                if (history.length > 1) {
+                    history.pop();
+                    mapData = JSON.parse(JSON.stringify(history[history.length - 1]));
+                    selectedPath = null;
+                    isEditMode = false;
+                    editingPath = null;
+                    extendingFromVertex = null;
+                    draggingVertex = null;
+                    dragVertexIndex = -1;
+                    dragPath = null;
+                    document.getElementById('selectedPathInfo').style.display = 'none';
+                    document.getElementById('editModeControls').style.display = 'none';
+                    document.getElementById('editModeBanner').classList.remove('active');
+                    redrawCanvas();
+                }
+            }
+    
+            function exportMap() {
+                const link = document.createElement('a');
+                link.download = 'map-design.png';
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            }
+    
+            function exportJSON() {
+                const dataStr = JSON.stringify(mapData, null, 2);
+                const blob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.download = 'map-data.json';
+                link.href = url;
+                link.click();
+                URL.revokeObjectURL(url);
+            }
+    
+            function redrawCanvas() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#f8f9fa';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+                drawGrid();
+    
+                drawAllPolygons(mapData.waterBodies);
+                drawAllPaths(mapData.rivers, 'river');
+                drawAllPaths(mapData.roads, 'road');
+                drawAllPaths(mapData.highways, 'highway');
+                drawAllPolygons(mapData.borders, true);
+    
+                mapData.cities.forEach(city => drawCity(city));
+    
+                if (isDrawingPath && currentPathPoints.length > 0) {
+                    drawPath(currentPathPoints, currentTool, false, true);
+                }
+    
+                if (selectedPath && !isEditMode) {
+                    if (selectedPath.type === 'water' || selectedPath.type === 'border') {
+                        drawPolygon(selectedPath.points, true, selectedPath.type === 'border');
+                    } else {
+                        drawPath(selectedPath.points, selectedPath.type, true, false);
+                    }
+                }
+    
+                if (isEditMode && editingPath) {
+                    if (editingPath.type === 'water' || editingPath.type === 'border') {
+                        drawPolygon(editingPath.points, true, editingPath.type === 'border', true);
+                    } else {
+                        drawPath(editingPath.points, editingPath.type, true, false, true);
+                    }
+                }
+                
+                // Highlight hovered vertex when using vertex select tool
+                if (currentTool === 'vertex-select' && hoveredPath && hoveredVertex !== null && !draggingVertex) {
+                    const point = hoveredPath.points[hoveredVertex];
+                    const screenPoint = worldToScreen(point.x, point.y);
+                    
                     ctx.save();
-                    ctx.strokeStyle = '#e0e0e0';
-                    ctx.lineWidth = 1;
-        
-                    const gridSpacing = 10;
-        
-                    const topLeft = screenToWorld(0, 0);
-                    const bottomRight = screenToWorld(canvas.width, canvas.height);
-        
-                    const startX = Math.floor(topLeft.x / gridSpacing) * gridSpacing;
-                    const endX = Math.ceil(bottomRight.x / gridSpacing) * gridSpacing;
-                    for (let x = startX; x <= endX; x += gridSpacing) {
-                        const screenPos = worldToScreen(x, 0);
-                        ctx.beginPath();
-                        ctx.moveTo(screenPos.x, 0);
-                        ctx.lineTo(screenPos.x, canvas.height);
-                        ctx.stroke();
-                    }
-        
-                    const startY = Math.floor(topLeft.y / gridSpacing) * gridSpacing;
-                    const endY = Math.ceil(bottomRight.y / gridSpacing) * gridSpacing;
-                    for (let y = startY; y <= endY; y += gridSpacing) {
-                        const screenPos = worldToScreen(0, y);
-                        ctx.beginPath();
-                        ctx.moveTo(0, screenPos.y);
-                        ctx.lineTo(canvas.width, screenPos.y);
-                        ctx.stroke();
-                    }
-        
-                    if (zoomLevel > 0.3) {
-                        ctx.fillStyle = '#bdc3c7';
-                        ctx.font = '10px Arial';
-                        ctx.textAlign = 'left';
-        
-                        for (let x = startX; x <= endX; x += gridSpacing) {
-                            if (x === 0) continue;
-                            const screenPos = worldToScreen(x, Math.max(topLeft.y, 0));
-                            ctx.fillText(`${x}km`, screenPos.x + 2, screenPos.y + 12);
-                        }
-        
-                        for (let y = startY; y <= endY; y += gridSpacing) {
-                            if (y === 0) continue;
-                            const screenPos = worldToScreen(Math.max(topLeft.x, 0), y);
-                            ctx.fillText(`${y}km`, screenPos.x + 2, screenPos.y + 12);
-                        }
-                    }
-        
+                    ctx.beginPath();
+                    ctx.arc(screenPoint.x, screenPoint.y, 12, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(231, 76, 60, 0.5)';
+                    ctx.fill();
+                    ctx.strokeStyle = '#e74c3c';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
                     ctx.restore();
                 }
-        
-                function drawAllPaths(paths, type) {
-                    paths.forEach(path => {
-                        drawPath(path.points, type, false, false);
-                    });
+    
+                if (hoveredPath && hoveredPath !== selectedPath && hoveredSegment && !isEditMode) {
+                    const points = hoveredPath.points;
+                    const seg = hoveredSegment;
+                    if (seg.end === 0) {
+                        drawPathSegment(points[seg.start], points[0], hoveredPath.type, true);
+                    } else {
+                        drawPathSegment(points[seg.start], points[seg.end], hoveredPath.type, true);
+                    }
                 }
-        
-                function drawAllPolygons(polygons, isBorder = false) {
-                    polygons.forEach(polygon => {
-                        drawPolygon(polygon.points, false, isBorder);
-                    });
+            }
+    
+            function drawGrid() {
+                ctx.save();
+                ctx.strokeStyle = '#e0e0e0';
+                ctx.lineWidth = 1;
+    
+                const gridSpacing = 10;
+    
+                const topLeft = screenToWorld(0, 0);
+                const bottomRight = screenToWorld(canvas.width, canvas.height);
+    
+                const startX = Math.floor(topLeft.x / gridSpacing) * gridSpacing;
+                const endX = Math.ceil(bottomRight.x / gridSpacing) * gridSpacing;
+                for (let x = startX; x <= endX; x += gridSpacing) {
+                    const screenPos = worldToScreen(x, 0);
+                    ctx.beginPath();
+                    ctx.moveTo(screenPos.x, 0);
+                    ctx.lineTo(screenPos.x, canvas.height);
+                    ctx.stroke();
                 }
-        
-                function drawPolygon(points, isSelected = false, isBorder = false, isEditing = false) {
-                    if (points.length < 3) return;
-        
-                    ctx.save();
-        
+    
+                const startY = Math.floor(topLeft.y / gridSpacing) * gridSpacing;
+                const endY = Math.ceil(bottomRight.y / gridSpacing) * gridSpacing;
+                for (let y = startY; y <= endY; y += gridSpacing) {
+                    const screenPos = worldToScreen(0, y);
+                    ctx.beginPath();
+                    ctx.moveTo(0, screenPos.y);
+                    ctx.lineTo(canvas.width, screenPos.y);
+                    ctx.stroke();
+                }
+    
+                if (zoomLevel > 0.3) {
+                    ctx.fillStyle = '#bdc3c7';
+                    ctx.font = '10px Arial';
+                    ctx.textAlign = 'left';
+    
+                    for (let x = startX; x <= endX; x += gridSpacing) {
+                        if (x === 0) continue;
+                        const screenPos = worldToScreen(x, Math.max(topLeft.y, 0));
+                        ctx.fillText(`${x}km`, screenPos.x + 2, screenPos.y + 12);
+                    }
+    
+                    for (let y = startY; y <= endY; y += gridSpacing) {
+                        if (y === 0) continue;
+                        const screenPos = worldToScreen(Math.max(topLeft.x, 0), y);
+                        ctx.fillText(`${y}km`, screenPos.x + 2, screenPos.y + 12);
+                    }
+                }
+    
+                ctx.restore();
+            }
+    
+            function drawAllPaths(paths, type) {
+                paths.forEach(path => {
+                    drawPath(path.points, type, false, false);
+                });
+            }
+    
+            function drawAllPolygons(polygons, isBorder = false) {
+                polygons.forEach(polygon => {
+                    drawPolygon(polygon.points, false, isBorder);
+                });
+            }
+    
+            function drawPolygon(points, isSelected = false, isBorder = false, isEditing = false) {
+                if (points.length < 3) return;
+    
+                ctx.save();
+    
+                ctx.beginPath();
+                const firstPoint = worldToScreen(points[0].x, points[0].y);
+                ctx.moveTo(firstPoint.x, firstPoint.y);
+                
+                for (let i = 1; i < points.length; i++) {
+                    const point = worldToScreen(points[i].x, points[i].y);
+                    ctx.lineTo(point.x, point.y);
+                }
+                ctx.closePath();
+    
+                if (isBorder) {
+                    ctx.strokeStyle = '#34495e';
+                    ctx.lineWidth = isSelected ? 5 : 3;
+                    ctx.setLineDash([10, 5]);
+                } else {
+                    ctx.fillStyle = 'rgba(52, 152, 219, 0.4)';
+                    ctx.fill();
+                    ctx.strokeStyle = '#3498db';
+                    ctx.lineWidth = isSelected ? 4 : 2;
+                }
+    
+                if (isSelected) {
+                    ctx.shadowColor = '#f39c12';
+                    ctx.shadowBlur = 10;
+                }
+                ctx.stroke();
+    
+                points.forEach((point, index) => {
+                    const screenPoint = worldToScreen(point.x, point.y);
+                    const isHovered = isEditing && hoveredVertex === index;
+                    const isEndpoint = index === 0 || index === points.length - 1;
+                    const vertexRadius = isEditing ? 8 : (isSelected ? 5 : 3);
+                    
+                    ctx.beginPath();
+                    ctx.arc(screenPoint.x, screenPoint.y, isHovered ? vertexRadius + 2 : vertexRadius, 0, Math.PI * 2);
+                    
+                    if (isHovered) {
+                        ctx.fillStyle = '#e74c3c';
+                    } else if (isEditing && isEndpoint) {
+                        ctx.fillStyle = '#2ecc71';
+                    } else if (isSelected) {
+                        ctx.fillStyle = '#f39c12';
+                    } else {
+                        ctx.fillStyle = '#2c3e50';
+                    }
+                    
+                    ctx.fill();
+                });
+    
+                if (isEditing && hoveredEditSegment) {
+                    const seg = hoveredEditSegment;
+                    drawPathSegment(points[seg.start], points[seg.end], isBorder ? 'border' : 'water', true);
+                }
+    
+                ctx.restore();
+            }
+    
+            function drawPath(points, type, isSelected = false, isCurrent = false, isEditing = false) {
+                if (points.length < 1) return;
+    
+                ctx.save();
+    
+                setDrawStyle(type);
+    
+                if (isSelected) {
+                    ctx.lineWidth += 4;
+                    ctx.shadowColor = '#f39c12';
+                    ctx.shadowBlur = 10;
+                }
+    
+                if (points.length === 1) {
+                    const screenPoint = worldToScreen(points[0].x, points[0].y);
+                    ctx.beginPath();
+                    ctx.arc(screenPoint.x, screenPoint.y, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
                     ctx.beginPath();
                     const firstPoint = worldToScreen(points[0].x, points[0].y);
                     ctx.moveTo(firstPoint.x, firstPoint.y);
@@ -2439,345 +1618,273 @@
                         const point = worldToScreen(points[i].x, points[i].y);
                         ctx.lineTo(point.x, point.y);
                     }
-                    ctx.closePath();
-        
-                    if (isBorder) {
-                        ctx.strokeStyle = '#34495e';
-                        ctx.lineWidth = isSelected ? 5 : 3;
-                        ctx.setLineDash([10, 5]);
-                    } else {
-                        ctx.fillStyle = 'rgba(52, 152, 219, 0.4)';
-                        ctx.fill();
-                        ctx.strokeStyle = '#3498db';
-                        ctx.lineWidth = isSelected ? 4 : 2;
-                    }
-        
-                    if (isSelected) {
-                        ctx.shadowColor = '#f39c12';
-                        ctx.shadowBlur = 10;
-                    }
                     ctx.stroke();
-        
-                    points.forEach((point, index) => {
-                        const screenPoint = worldToScreen(point.x, point.y);
-                        const isHovered = isEditing && hoveredVertex === index;
-                        const isEndpoint = index === 0 || index === points.length - 1;
-                        
-                        ctx.beginPath();
-                        ctx.arc(screenPoint.x, screenPoint.y, isHovered ? 8 : (isSelected ? 5 : 3), 0, Math.PI * 2);
-                        
-                        if (isHovered) {
-                            ctx.fillStyle = '#e74c3c';
-                        } else if (isEditing && isEndpoint) {
-                            ctx.fillStyle = '#2ecc71';
-                        } else if (isSelected) {
-                            ctx.fillStyle = '#f39c12';
-                        } else {
-                            ctx.fillStyle = '#2c3e50';
-                        }
-                        
-                        ctx.fill();
-                    });
-        
-                    if (isEditing && hoveredEditSegment) {
-                        const seg = hoveredEditSegment;
-                        drawPathSegment(points[seg.start], points[seg.end], isBorder ? 'border' : 'water', true);
-                    }
-        
-                    ctx.restore();
                 }
-        
-                function drawPath(points, type, isSelected = false, isCurrent = false, isEditing = false) {
-                    if (points.length < 1) return;
-        
-                    ctx.save();
-        
-                    setDrawStyle(type);
-        
-                    if (isSelected) {
-                        ctx.lineWidth += 4;
-                        ctx.shadowColor = '#f39c12';
-                        ctx.shadowBlur = 10;
-                    }
-        
-                    if (points.length === 1) {
-                        const screenPoint = worldToScreen(points[0].x, points[0].y);
-                        ctx.beginPath();
-                        ctx.arc(screenPoint.x, screenPoint.y, 3, 0, Math.PI * 2);
-                        ctx.fill();
-                    } else {
-                        ctx.beginPath();
-                        const firstPoint = worldToScreen(points[0].x, points[0].y);
-                        ctx.moveTo(firstPoint.x, firstPoint.y);
-                        
-                        for (let i = 1; i < points.length; i++) {
-                            const point = worldToScreen(points[i].x, points[i].y);
-                            ctx.lineTo(point.x, point.y);
-                        }
-                        ctx.stroke();
-                    }
-        
-                    ctx.globalAlpha = 1;
+    
+                ctx.globalAlpha = 1;
+                
+                points.forEach((point, index) => {
+                    const screenPoint = worldToScreen(point.x, point.y);
+                    const isHovered = isEditing && hoveredVertex === index;
+                    const isEndpoint = index === 0 || index === points.length - 1;
+                    const isExtending = extendingFromVertex && extendingFromVertex.vertexIndex === index;
+                    const vertexRadius = isEditing ? 8 : (isSelected ? 5 : 3);
                     
-                    points.forEach((point, index) => {
-                        const screenPoint = worldToScreen(point.x, point.y);
-                        const isHovered = isEditing && hoveredVertex === index;
-                        const isEndpoint = index === 0 || index === points.length - 1;
-                        const isExtending = extendingFromVertex && extendingFromVertex.vertexIndex === index;
-                        
-                        ctx.beginPath();
-                        ctx.arc(screenPoint.x, screenPoint.y, isHovered ? 8 : (isSelected ? 5 : 3), 0, Math.PI * 2);
-                        
-                        if (isExtending) {
-                            ctx.fillStyle = '#e74c3c';
-                        } else if (isHovered) {
-                            ctx.fillStyle = '#e74c3c';
-                        } else if (isEditing && isEndpoint) {
-                            ctx.fillStyle = '#2ecc71';
-                        } else if (isSelected) {
-                            ctx.fillStyle = '#f39c12';
-                        } else {
-                            ctx.fillStyle = '#2c3e50';
-                        }
-                        
-                        ctx.fill();
-                    });
-        
-                    if (isEditing && hoveredEditSegment) {
-                        const seg = hoveredEditSegment;
-                        drawPathSegment(points[seg.start], points[seg.end], type, true);
-                    }
-        
-                    if ((isSelected || isCurrent) && zoomLevel > 0.3) {
-                        ctx.font = '11px Arial';
-                        ctx.textAlign = 'center';
-                        
-                        for (let i = 1; i < points.length; i++) {
-                            const dist = calculateSegmentLength(points[i-1], points[i]);
-                            const midWorld = {
-                                x: (points[i-1].x + points[i].x) / 2,
-                                y: (points[i-1].y + points[i].y) / 2
-                            };
-                            const midScreen = worldToScreen(midWorld.x, midWorld.y);
-                            
-                            ctx.save();
-                            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-                            ctx.fillRect(midScreen.x - 25, midScreen.y - 10, 50, 15);
-                            ctx.restore();
-                            
-                            ctx.fillStyle = '#e74c3c';
-                            ctx.fillText(`${dist.toFixed(2)} km`, midScreen.x, midScreen.y);
-                        }
-                    }
-        
-                    ctx.restore();
-                }
-        
-                function drawPathSegment(p1, p2, type, isHighlighted = false) {
-                    ctx.save();
-                    
-                    setDrawStyle(type);
-                    
-                    if (isHighlighted) {
-                        ctx.lineWidth += 3;
-                        ctx.shadowColor = '#f39c12';
-                        ctx.shadowBlur = 8;
-                    }
-        
-                    const screen1 = worldToScreen(p1.x, p1.y);
-                    const screen2 = worldToScreen(p2.x, p2.y);
-        
                     ctx.beginPath();
-                    ctx.moveTo(screen1.x, screen1.y);
-                    ctx.lineTo(screen2.x, screen2.y);
-                    ctx.stroke();
-        
-                    ctx.restore();
-                }
-        
-                function setDrawStyle(type) {
-                    ctx.globalAlpha = 1;
-                    ctx.setLineDash([]);
+                    ctx.arc(screenPoint.x, screenPoint.y, isHovered ? vertexRadius + 2 : vertexRadius, 0, Math.PI * 2);
                     
-                    switch(type) {
-                        case 'highway':
-                            ctx.strokeStyle = '#e74c3c';
-                            ctx.lineWidth = 8;
-                            ctx.lineCap = 'round';
-                            ctx.lineJoin = 'round';
-                            break;
-                        case 'road':
-                            ctx.strokeStyle = '#95a5a6';
-                            ctx.lineWidth = 4;
-                            ctx.lineCap = 'round';
-                            ctx.lineJoin = 'round';
-                            break;
-                        case 'river':
-                            ctx.strokeStyle = '#3498db';
-                            ctx.lineWidth = 6;
-                            ctx.lineCap = 'round';
-                            ctx.lineJoin = 'round';
-                            break;
-                        case 'border':
-                            ctx.strokeStyle = '#34495e';
-                            ctx.lineWidth = 3;
-                            ctx.setLineDash([10, 5]);
-                            ctx.lineCap = 'butt';
-                            ctx.lineJoin = 'miter';
-                            break;
-                        case 'water':
-                            ctx.strokeStyle = '#3498db';
-                            ctx.lineWidth = 2;
-                            ctx.lineCap = 'round';
-                            ctx.lineJoin = 'round';
-                            break;
-                    }
-                }
-        
-                function drawCity(city) {
-                    const screenPos = worldToScreen(city.x, city.y);
-        
-                    ctx.save();
-                    ctx.globalAlpha = 1;
-                    ctx.fillStyle = '#f39c12';
-                    ctx.beginPath();
-                    ctx.arc(screenPos.x, screenPos.y, 8, 0, Math.PI * 2);
-                    ctx.fill();
-        
-                    ctx.strokeStyle = '#e67e22';
-                    ctx.lineWidth = 2;
-                    ctx.stroke();
-        
-                    if (zoomLevel > 0.3) {
+                    if (isExtending) {
+                        ctx.fillStyle = '#e74c3c';
+                    } else if (isHovered) {
+                        ctx.fillStyle = '#e74c3c';
+                    } else if (isEditing && isEndpoint) {
+                        ctx.fillStyle = '#2ecc71';
+                    } else if (isSelected) {
+                        ctx.fillStyle = '#f39c12';
+                    } else {
                         ctx.fillStyle = '#2c3e50';
-                        ctx.font = 'bold 14px Arial';
-                        ctx.textAlign = 'center';
-                        ctx.fillText(city.name, screenPos.x, screenPos.y - 12);
                     }
-                    ctx.restore();
-                }
-        
-                function exportSVG() {
-                    const bounds = calculateMapBounds();
-                    const width = (bounds.maxX - bounds.minX) * baseScale + 100;
-                    const height = (bounds.maxY - bounds.minY) * baseScale + 100;
-                    const offsetX = -bounds.minX * baseScale + 50;
-                    const offsetY = -bounds.minY * baseScale + 50;
-        
-                    let svg = `<?xml version="1.0" encoding="UTF-8"?>
-        <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-            <desc>Vector map created with Vector Map Designer. Scale: ${baseScale} pixels/km</desc>
-            <rect width="100%" height="100%" fill="#f8f9fa"/>
-            
-        `;
-        
-                    if (mapData.waterBodies.length > 0) {
-                        svg += '    <!-- Water Bodies -->\n    <g id="waterBodies">';
-                        mapData.waterBodies.forEach((polygon, index) => {
-                            const pathD = polygon.points.map((p, i) => 
-                                `${i === 0 ? 'M' : 'L'} ${(p.x * baseScale + offsetX).toFixed(2)} ${(p.y * baseScale + offsetY).toFixed(2)}`
-                            ).join(' ') + ' Z';
-                            const area = calculatePolygonArea(polygon.points);
-                            
-                            svg += `\n        <path d="${pathD}" fill="rgba(52, 152, 219, 0.4)" stroke="#3498db" stroke-width="2">
-                    <title>Water Body #${index + 1} - Area: ${area.toFixed(2)} km²</title>
-                </path>`;
-                        });
-                        svg += '\n    </g>\n';
-                    }
-        
-                    svg += addPathGroup(mapData.rivers, 'rivers', '#3498db', 6, offsetX, offsetY);
-                    svg += addPathGroup(mapData.roads, 'roads', '#95a5a6', 4, offsetX, offsetY);
-                    svg += addPathGroup(mapData.highways, 'highways', '#e74c3c', 8, offsetX, offsetY);
                     
-                    if (mapData.borders.length > 0) {
-                        svg += '    <!-- Borders -->\n    <g id="borders">';
-                        mapData.borders.forEach((polygon, index) => {
-                            const pathD = polygon.points.map((p, i) => 
-                                `${i === 0 ? 'M' : 'L'} ${(p.x * baseScale + offsetX).toFixed(2)} ${(p.y * baseScale + offsetY).toFixed(2)}`
-                            ).join(' ') + ' Z';
-                            const area = calculatePolygonArea(polygon.points);
-                            
-                            svg += `\n        <path d="${pathD}" fill="none" stroke="#34495e" stroke-width="3" stroke-dasharray="10 5">
-                    <title>Border #${index + 1} - Area: ${area.toFixed(2)} km²</title>
-                </path>`;
-                        });
-                        svg += '\n    </g>\n';
-                    }
-        
-                    if (mapData.cities.length > 0) {
-                        svg += '\n    <!-- Cities -->\n    <g id="cities">';
-                        mapData.cities.forEach(city => {
-                            svg += `\n        <circle cx="${(city.x * baseScale + offsetX).toFixed(2)}" cy="${(city.y * baseScale + offsetY).toFixed(2)}" r="8" fill="#f39c12" stroke="#e67e22" stroke-width="2">
-                    <title>${city.name} (${city.x.toFixed(2)}, ${city.y.toFixed(2)} km)</title>
-                </circle>
-                <text x="${(city.x * baseScale + offsetX).toFixed(2)}" y="${(city.y * baseScale + offsetY - 12).toFixed(2)}" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="#2c3e50">${city.name}</text>`;
-                        });
-                        svg += '\n    </g>';
-                    }
-        
-                    svg += '\n</svg>';
-        
-                    const blob = new Blob([svg], { type: 'image/svg+xml' });
-                    const url = URL.createObjectURL(blob);
-                    const link = document.createElement('a');
-                    link.download = 'map-design.svg';
-                    link.href = url;
-                    link.click();
-                    URL.revokeObjectURL(url);
+                    ctx.fill();
+                });
+    
+                if (isEditing && hoveredEditSegment) {
+                    const seg = hoveredEditSegment;
+                    drawPathSegment(points[seg.start], points[seg.end], type, true);
                 }
-        
-                function addPathGroup(paths, type, color, width, offsetX, offsetY) {
-                    if (paths.length === 0) return '';
+    
+                if ((isSelected || isCurrent) && zoomLevel > 0.3) {
+                    ctx.font = '11px Arial';
+                    ctx.textAlign = 'center';
                     
-                    let group = `\n    <!-- ${type} -->\n    <g id="${type}">`;
-                    paths.forEach((path, index) => {
-                        const length = calculatePathLength(path.points);
-                        const pathD = path.points.map((p, i) => 
-                            `${i === 0 ? 'M' : 'L'} ${(p.x * baseScale + offsetX).toFixed(2)} ${(p.y * baseScale + offsetY).toFixed(2)}`
-                        ).join(' ');
+                    for (let i = 1; i < points.length; i++) {
+                        const dist = calculateSegmentLength(points[i-1], points[i]);
+                        const midWorld = {
+                            x: (points[i-1].x + points[i].x) / 2,
+                            y: (points[i-1].y + points[i].y) / 2
+                        };
+                        const midScreen = worldToScreen(midWorld.x, midWorld.y);
                         
-                        group += `\n        <path d="${pathD}" stroke="${color}" stroke-width="${width}" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                    <title>${type} #${index + 1} - ${length.toFixed(2)} km</title>
-                </path>`;
-                    });
-                    group += '\n    </g>';
-                    return group;
-                }
-        
-                function calculateMapBounds() {
-                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        
-                    [...mapData.highways, ...mapData.roads, ...mapData.rivers, ...mapData.waterBodies, ...mapData.borders].forEach(item => {
-                        item.points.forEach(p => {
-                            minX = Math.min(minX, p.x);
-                            minY = Math.min(minY, p.y);
-                            maxX = Math.max(maxX, p.x);
-                            maxY = Math.max(maxY, p.y);
-                        });
-                    });
-        
-                    mapData.cities.forEach(city => {
-                        minX = Math.min(minX, city.x);
-                        minY = Math.min(minY, city.y);
-                        maxX = Math.max(maxX, city.x);
-                        maxY = Math.max(maxY, city.y);
-                    });
-        
-                    return minX === Infinity ? { minX: 0, minY: 0, maxX: 100, maxY: 100 } : { minX, minY, maxX, maxY };
-                }
-        
-                function updateBaseScale() {
-                    const newScale = parseFloat(document.getElementById('baseScale').value);
-                    if (newScale > 0 && newScale <= 100) {
-                        baseScale = newScale;
-                        updateZoomDisplay();
-                        redrawCanvas();
-                    } else {
-                        alert('Please enter a valid scale between 1 and 100');
-                        document.getElementById('baseScale').value = baseScale;
+                        ctx.save();
+                        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                        ctx.fillRect(midScreen.x - 25, midScreen.y - 10, 50, 15);
+                        ctx.restore();
+                        
+                        ctx.fillStyle = '#e74c3c';
+                        ctx.fillText(`${dist.toFixed(2)} km`, midScreen.x, midScreen.y);
                     }
                 }
-            </script>
+    
+                ctx.restore();
+            }
+    
+            function drawPathSegment(p1, p2, type, isHighlighted = false) {
+                ctx.save();
+                
+                setDrawStyle(type);
+                
+                if (isHighlighted) {
+                    ctx.lineWidth += 3;
+                    ctx.shadowColor = '#f39c12';
+                    ctx.shadowBlur = 8;
+                }
+    
+                const screen1 = worldToScreen(p1.x, p1.y);
+                const screen2 = worldToScreen(p2.x, p2.y);
+    
+                ctx.beginPath();
+                ctx.moveTo(screen1.x, screen1.y);
+                ctx.lineTo(screen2.x, screen2.y);
+                ctx.stroke();
+    
+                ctx.restore();
+            }
+    
+            function setDrawStyle(type) {
+                ctx.globalAlpha = 1;
+                ctx.setLineDash([]);
+                
+                switch(type) {
+                    case 'highway':
+                        ctx.strokeStyle = '#e74c3c';
+                        ctx.lineWidth = 8;
+                        ctx.lineCap = 'round';
+                        ctx.lineJoin = 'round';
+                        break;
+                    case 'road':
+                        ctx.strokeStyle = '#95a5a6';
+                        ctx.lineWidth = 4;
+                        ctx.lineCap = 'round';
+                        ctx.lineJoin = 'round';
+                        break;
+                    case 'river':
+                        ctx.strokeStyle = '#3498db';
+                        ctx.lineWidth = 6;
+                        ctx.lineCap = 'round';
+                        ctx.lineJoin = 'round';
+                        break;
+                    case 'border':
+                        ctx.strokeStyle = '#34495e';
+                        ctx.lineWidth = 3;
+                        ctx.setLineDash([10, 5]);
+                        ctx.lineCap = 'butt';
+                        ctx.lineJoin = 'miter';
+                        break;
+                    case 'water':
+                        ctx.strokeStyle = '#3498db';
+                        ctx.lineWidth = 2;
+                        ctx.lineCap = 'round';
+                        ctx.lineJoin = 'round';
+                        break;
+                }
+            }
+    
+            function drawCity(city) {
+                const screenPos = worldToScreen(city.x, city.y);
+    
+                ctx.save();
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = '#f39c12';
+                ctx.beginPath();
+                ctx.arc(screenPos.x, screenPos.y, 8, 0, Math.PI * 2);
+                ctx.fill();
+    
+                ctx.strokeStyle = '#e67e22';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+    
+                if (zoomLevel > 0.3) {
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 14px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(city.name, screenPos.x, screenPos.y - 12);
+                }
+                ctx.restore();
+            }
+    
+            function exportSVG() {
+                const bounds = calculateMapBounds();
+                const width = (bounds.maxX - bounds.minX) * baseScale + 100;
+                const height = (bounds.maxY - bounds.minY) * baseScale + 100;
+                const offsetX = -bounds.minX * baseScale + 50;
+                const offsetY = -bounds.minY * baseScale + 50;
+    
+                let svg = `<?xml version="1.0" encoding="UTF-8"?>
+    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+        <desc>Vector map created with Vector Map Designer. Scale: ${baseScale} pixels/km</desc>
+        <rect width="100%" height="100%" fill="#f8f9fa"/>
+        
+    `;
+    
+                if (mapData.waterBodies.length > 0) {
+                    svg += '    <!-- Water Bodies -->\n    <g id="waterBodies">';
+                    mapData.waterBodies.forEach((polygon, index) => {
+                        const pathD = polygon.points.map((p, i) => 
+                            `${i === 0 ? 'M' : 'L'} ${(p.x * baseScale + offsetX).toFixed(2)} ${(p.y * baseScale + offsetY).toFixed(2)}`
+                        ).join(' ') + ' Z';
+                        const area = calculatePolygonArea(polygon.points);
+                        
+                        svg += `\n        <path d="${pathD}" fill="rgba(52, 152, 219, 0.4)" stroke="#3498db" stroke-width="2">
+                <title>Water Body #${index + 1} - Area: ${area.toFixed(2)} km²</title>
+            </path>`;
+                    });
+                    svg += '\n    </g>\n';
+                }
+    
+                svg += addPathGroup(mapData.rivers, 'rivers', '#3498db', 6, offsetX, offsetY);
+                svg += addPathGroup(mapData.roads, 'roads', '#95a5a6', 4, offsetX, offsetY);
+                svg += addPathGroup(mapData.highways, 'highways', '#e74c3c', 8, offsetX, offsetY);
+                
+                if (mapData.borders.length > 0) {
+                    svg += '    <!-- Borders -->\n    <g id="borders">';
+                    mapData.borders.forEach((polygon, index) => {
+                        const pathD = polygon.points.map((p, i) => 
+                            `${i === 0 ? 'M' : 'L'} ${(p.x * baseScale + offsetX).toFixed(2)} ${(p.y * baseScale + offsetY).toFixed(2)}`
+                        ).join(' ') + ' Z';
+                        const area = calculatePolygonArea(polygon.points);
+                        
+                        svg += `\n        <path d="${pathD}" fill="none" stroke="#34495e" stroke-width="3" stroke-dasharray="10 5">
+                <title>Border #${index + 1} - Area: ${area.toFixed(2)} km²</title>
+            </path>`;
+                    });
+                    svg += '\n    </g>\n';
+                }
+    
+                if (mapData.cities.length > 0) {
+                    svg += '\n    <!-- Cities -->\n    <g id="cities">';
+                    mapData.cities.forEach(city => {
+                        svg += `\n        <circle cx="${(city.x * baseScale + offsetX).toFixed(2)}" cy="${(city.y * baseScale + offsetY).toFixed(2)}" r="8" fill="#f39c12" stroke="#e67e22" stroke-width="2">
+                <title>${city.name} (${city.x.toFixed(2)}, ${city.y.toFixed(2)} km)</title>
+            </circle>
+            <text x="${(city.x * baseScale + offsetX).toFixed(2)}" y="${(city.y * baseScale + offsetY - 12).toFixed(2)}" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="#2c3e50">${city.name}</text>`;
+                    });
+                    svg += '\n    </g>';
+                }
+    
+                svg += '\n</svg>';
+    
+                const blob = new Blob([svg], { type: 'image/svg+xml' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.download = 'map-design.svg';
+                link.href = url;
+                link.click();
+                URL.revokeObjectURL(url);
+            }
+    
+            function addPathGroup(paths, type, color, width, offsetX, offsetY) {
+                if (paths.length === 0) return '';
+                
+                let group = `\n    <!-- ${type} -->\n    <g id="${type}">`;
+                paths.forEach((path, index) => {
+                    const length = calculatePathLength(path.points);
+                    const pathD = path.points.map((p, i) => 
+                        `${i === 0 ? 'M' : 'L'} ${(p.x * baseScale + offsetX).toFixed(2)} ${(p.y * baseScale + offsetY).toFixed(2)}`
+                    ).join(' ');
+                    
+                    group += `\n        <path d="${pathD}" stroke="${color}" stroke-width="${width}" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <title>${type} #${index + 1} - ${length.toFixed(2)} km</title>
+            </path>`;
+                });
+                group += '\n    </g>';
+                return group;
+            }
+    
+            function calculateMapBounds() {
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    
+                [...mapData.highways, ...mapData.roads, ...mapData.rivers, ...mapData.waterBodies, ...mapData.borders].forEach(item => {
+                    item.points.forEach(p => {
+                        minX = Math.min(minX, p.x);
+                        minY = Math.min(minY, p.y);
+                        maxX = Math.max(maxX, p.x);
+                        maxY = Math.max(maxY, p.y);
+                    });
+                });
+    
+                mapData.cities.forEach(city => {
+                    minX = Math.min(minX, city.x);
+                    minY = Math.min(minY, city.y);
+                    maxX = Math.max(maxX, city.x);
+                    maxY = Math.max(maxY, city.y);
+                });
+    
+                return minX === Infinity ? { minX: 0, minY: 0, maxX: 100, maxY: 100 } : { minX, minY, maxX, maxY };
+            }
+    
+            function updateBaseScale() {
+                const newScale = parseFloat(document.getElementById('baseScale').value);
+                if (newScale > 0 && newScale <= 100) {
+                    baseScale = newScale;
+                    updateZoomDisplay();
+                    redrawCanvas();
+                } else {
+                    alert('Please enter a valid scale between 1 and 100');
+                    document.getElementById('baseScale').value = baseScale;
+                }
+            }
+        </script>
+
+
         </body>
         </html>

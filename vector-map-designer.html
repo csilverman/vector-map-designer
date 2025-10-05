@@ -349,6 +349,7 @@
             <div class="tool-section">
                 <h3>Drawing Tools</h3>
                 <button class="tool-btn" onclick="setTool('vertex-select', this)" style="background: #ecf0f1; color: #2c3e50;">✋ Vertex Select</button>
+                <button class="tool-btn" onclick="setTool('add-vertex', this)" style="background: #ecf0f1; color: #2c3e50;">➕ Add Vertex</button>
                 <button class="tool-btn highway active" onclick="setTool('highway', this)">Highway</button>
                 <button class="tool-btn road" onclick="setTool('road', this)">Road</button>
                 <button class="tool-btn river" onclick="setTool('river', this)">River</button>
@@ -465,10 +466,18 @@
             let hoveredEditSegment = null;
             let extendingFromVertex = null;
             
+        // Mouse position tracking for add-vertex preview
+            let lastMouseX = 0;
+            let lastMouseY = 0;            
+            
+            
             // Vertex dragging state (for vertex select tool)
             let draggingVertex = null;
             let dragVertexIndex = -1;
             let dragPath = null;
+
+
+
             
             let mapData = {
                 highways: [],
@@ -604,10 +613,13 @@
                 }
             }
             
-            function handleMouseMove(e) {
-                // Handle vertex dragging
-                if (draggingVertex && dragVertexIndex !== -1 && dragPath) {
-                    const worldPos = screenToWorld(e.clientX, e.clientY);
+        function handleMouseMove(e) {
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+            
+            // Handle vertex dragging
+            if (draggingVertex && dragVertexIndex !== -1 && dragPath) {
+                const worldPos = screenToWorld(e.clientX, e.clientY);
                     dragPath.points[dragVertexIndex] = worldPos;
                     redrawCanvas();
                     return;
@@ -627,6 +639,59 @@
                 const worldPos = screenToWorld(e.clientX, e.clientY);
                 updateCoordinates(worldPos);
                 
+
+            // Highlight segments when using add-vertex tool
+                if (currentTool === 'add-vertex' && !draggingVertex) {
+                    let foundSegment = false;
+                    const allPaths = [
+                        ...mapData.highways,
+                        ...mapData.roads,
+                        ...mapData.rivers,
+                        ...mapData.waterBodies,
+                        ...mapData.borders
+                    ];
+                    
+                    for (const path of allPaths) {
+                        // Check regular segments
+                        for (let i = 1; i < path.points.length; i++) {
+                            const dist = distanceToSegment(worldPos, path.points[i-1], path.points[i]);
+                            if (dist < 0.5) {
+                                hoveredPath = path;
+                                hoveredSegment = { start: i - 1, end: i };
+                                foundSegment = true;
+                                updateCursor();
+                                redrawCanvas();
+                                break;
+                            }
+                        }
+                        
+                        if (foundSegment) break;
+                        
+                        // For polygons, check closing segment
+                        if (path.type === 'water' || path.type === 'border') {
+                            const dist = distanceToSegment(worldPos, path.points[path.points.length - 1], path.points[0]);
+                            if (dist < 0.5) {
+                                hoveredPath = path;
+                                hoveredSegment = { start: path.points.length - 1, end: 0 };
+                                foundSegment = true;
+                                updateCursor();
+                                redrawCanvas();
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (!foundSegment && hoveredSegment !== null) {
+                        hoveredSegment = null;
+                        hoveredPath = null;
+                        updateCursor();
+                        redrawCanvas();
+                    }
+                    
+                    tooltip.classList.remove('show');
+                    return;
+                }
+
                 // Highlight vertices when using vertex select tool
                 if (currentTool === 'vertex-select' && !draggingVertex) {
                     let foundVertex = false;
@@ -730,14 +795,53 @@
                 }
             }
             
-            function handleClick(e) {
+        function handleClick(e) {
                 if (spacebarDown || isPanning || e.button !== 0) return;
                 if (draggingVertex) return; // Don't process clicks while dragging
                 
+                const worldPos = screenToWorld(e.clientX, e.clientY);
+                
+                // Handle add-vertex tool
+                if (currentTool === 'add-vertex') {
+                    // Find if we clicked on a segment
+                    const allPaths = [
+                        ...mapData.highways,
+                        ...mapData.roads,
+                        ...mapData.rivers,
+                        ...mapData.waterBodies,
+                        ...mapData.borders
+                    ];
+                    
+                    for (const path of allPaths) {
+                        // Check regular segments
+                        for (let i = 1; i < path.points.length; i++) {
+                            const dist = distanceToSegment(worldPos, path.points[i-1], path.points[i]);
+                            if (dist < 0.5) {
+                                // Insert vertex at this position
+                                path.points.splice(i, 0, worldPos);
+                                saveToHistory();
+                                redrawCanvas();
+                                return;
+                            }
+                        }
+                        
+                        // For polygons, also check the closing segment
+                        if (path.type === 'water' || path.type === 'border') {
+                            const dist = distanceToSegment(worldPos, path.points[path.points.length - 1], path.points[0]);
+                            if (dist < 0.5) {
+                                // Insert at the end (which closes the polygon)
+                                path.points.push(worldPos);
+                                saveToHistory();
+                                redrawCanvas();
+                                return;
+                            }
+                        }
+                    }
+                    return;
+                }
+                
                 // Vertex select tool doesn't do anything on click (only drag)
                 if (currentTool === 'vertex-select') return;
-                
-                const worldPos = screenToWorld(e.clientX, e.clientY);
                 
                 if (isEditMode && editingPath) {
                     handleEditClick(worldPos);
@@ -868,6 +972,15 @@
                 if (currentTool === 'vertex-select') {
                     if (hoveredVertex !== null) {
                         canvas.style.cursor = 'grab';
+                    } else {
+                        canvas.style.cursor = 'default';
+                    }
+                    return;
+                }
+
+            if (currentTool === 'add-vertex') {
+                    if (hoveredSegment !== null) {
+                        canvas.style.cursor = 'crosshair';
                     } else {
                         canvas.style.cursor = 'default';
                     }
@@ -1094,15 +1207,17 @@
                 });
                 buttonElement.classList.add('active');
     
-                const toolNames = {
+            const toolNames = {
                     'highway': 'Highway',
                     'road': 'Road',
                     'river': 'River',
                     'water': 'Water Body',
                     'border': 'Border',
                     'city': 'City',
-                    'vertex-select': 'Vertex Select'
+                    'vertex-select': 'Vertex Select',
+                    'add-vertex': 'Add Vertex'
                 };
+                
                 document.getElementById('currentToolDisplay').textContent = toolNames[tool];
     
                 updateCursor();
@@ -1453,6 +1568,35 @@
                     ctx.lineWidth = 3;
                     ctx.stroke();
                     ctx.restore();
+                }
+                
+                // Show insertion preview when using add-vertex tool
+                if (currentTool === 'add-vertex' && hoveredPath && hoveredSegment) {
+                    const seg = hoveredSegment;
+                    const points = hoveredPath.points;
+                    
+                    if (seg.end === 0) {
+                        drawPathSegment(points[seg.start], points[0], hoveredPath.type, true);
+                    } else {
+                        drawPathSegment(points[seg.start], points[seg.end], hoveredPath.type, true);
+                    }
+                    
+                    // Get mouse position to show where vertex will be inserted
+                    const rect = container.getBoundingClientRect();
+                    if (lastMouseX !== undefined && lastMouseY !== undefined) {
+                        const worldPos = screenToWorld(lastMouseX, lastMouseY);
+                        const screenPos = worldToScreen(worldPos.x, worldPos.y);
+                        
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.arc(screenPos.x, screenPos.y, 8, 0, Math.PI * 2);
+                        ctx.fillStyle = 'rgba(46, 204, 113, 0.6)';
+                        ctx.fill();
+                        ctx.strokeStyle = '#2ecc71';
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+                        ctx.restore();
+                    }
                 }
     
                 if (hoveredPath && hoveredPath !== selectedPath && hoveredSegment && !isEditMode) {

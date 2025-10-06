@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vector Map Designer - Infinite Canvas</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
             margin: 0;
@@ -364,6 +365,16 @@
                     City Name:
                     <input type="text" id="cityName" placeholder="Enter city name">
                 </label>
+                
+                <button class="tool-btn" onclick="setTool('custom-point', this)" style="background: #ecf0f1; color: #2c3e50;">📍 Custom Point</button>
+                <label>
+                    Font Awesome Icon:
+                    <input type="text" id="customIcon" placeholder="e.g. fa-solid fa-tree">
+                </label>
+                <label>
+                    Point Label (optional):
+                    <input type="text" id="customLabel" placeholder="Enter label">
+                </label>
             </div>
 
             <div class="tool-section" id="selectedPathInfo" style="display: none;">
@@ -486,7 +497,8 @@
                 rivers: [],
                 waterBodies: [],
                 borders: [],
-                cities: []
+                cities: [],
+                customPoints: []
             };
             let history = [];
             let nextId = 1;
@@ -851,6 +863,8 @@
                     redrawCanvas();
                 } else if (currentTool === 'city') {
                     placeCity(worldPos);
+                } else if (currentTool === 'custom-point') {
+                    placeCustomPoint(worldPos);
                 } else {
                     if (!isDrawingPath) {
                         isDrawingPath = true;
@@ -994,7 +1008,7 @@
                     } else {
                         canvas.style.cursor = 'pointer';
                     }
-                } else if (currentTool === 'city') {
+            } else if (currentTool === 'city' || currentTool === 'custom-point') {
                     canvas.style.cursor = 'pointer';
                 } else {
                     canvas.style.cursor = 'crosshair';
@@ -1216,7 +1230,8 @@
                     'border': 'Border',
                     'city': 'City',
                     'vertex-select': 'Vertex Select',
-                    'add-vertex': 'Add Vertex'
+                    'add-vertex': 'Add Vertex',
+                    'custom-point': 'Custom Point'
                 };
                 
                 document.getElementById('currentToolDisplay').textContent = toolNames[tool];
@@ -1275,6 +1290,27 @@
                 redrawCanvas();
             }
     
+    function placeCustomPoint(pos) {
+        const iconClass = document.getElementById('customIcon').value.trim();
+        
+        if (!iconClass) {
+            alert('Please enter a Font Awesome icon class (e.g., "fa-solid fa-tree")');
+            return;
+        }
+        
+        const label = document.getElementById('customLabel').value || '';
+        
+        mapData.customPoints.push({
+            id: nextId++,
+            x: pos.x,
+            y: pos.y,
+            icon: iconClass,
+            label: label
+        });
+    
+        saveToHistory();
+        redrawCanvas();
+    }
             function calculatePathLength(points) {
                 let totalLength = 0;
                 for (let i = 1; i < points.length; i++) {
@@ -1457,7 +1493,8 @@
                         rivers: [],
                         waterBodies: [],
                         borders: [],
-                        cities: []
+                        cities: [],
+                        customPoints: []
                     };
                     history = [];
                     selectedPath = null;
@@ -1548,12 +1585,17 @@
                     throw new Error('Invalid JSON structure');
                 }
     
-                // Check if it has the expected map data structure
+                    // Check if it has the expected map data structure
                 const requiredFields = ['highways', 'roads', 'rivers', 'waterBodies', 'borders', 'cities'];
                 const hasValidStructure = requiredFields.every(field => 
                     Array.isArray(importedData[field])
                 );
-    
+                
+                // Handle customPoints for backward compatibility
+                if (!importedData.customPoints) {
+                    importedData.customPoints = [];
+                }
+                    
                 if (!hasValidStructure) {
                     throw new Error('JSON file does not contain valid map data');
                 }
@@ -1567,15 +1609,16 @@
                     importedData.borders.length +
                     importedData.cities.length;
     
-                const confirmMessage = `Import map with:\n` +
+                    const confirmMessage = `Import map with:\n` +
                     `• ${importedData.highways.length} highways\n` +
                     `• ${importedData.roads.length} roads\n` +
                     `• ${importedData.rivers.length} rivers\n` +
                     `• ${importedData.waterBodies.length} water bodies\n` +
                     `• ${importedData.borders.length} borders\n` +
-                    `• ${importedData.cities.length} cities\n\n` +
+                    `• ${importedData.cities.length} cities\n` +
+                    `• ${importedData.customPoints?.length || 0} custom points\n\n` +
                     `This will replace your current map. Continue?`;
-    
+                        
                 if (!confirm(confirmMessage)) {
                     event.target.value = ''; // Reset input
                     return;
@@ -1697,6 +1740,7 @@
                 drawAllPolygons(mapData.borders, true);
     
                 mapData.cities.forEach(city => drawCity(city));
+                mapData.customPoints.forEach(point => drawCustomPoint(point));
     
                 if (isDrawingPath && currentPathPoints.length > 0) {
                     drawPath(currentPathPoints, currentTool, false, true);
@@ -2069,6 +2113,110 @@
                 }
                 ctx.restore();
             }
+            
+            function drawCustomPoint(point) {
+                const screenPos = worldToScreen(point.x, point.y);
+            
+                ctx.save();
+                ctx.globalAlpha = 1;
+                
+                // Draw a background circle
+                ctx.fillStyle = '#9b59b6';
+                ctx.beginPath();
+                ctx.arc(screenPos.x, screenPos.y, 12, 0, Math.PI * 2);
+                ctx.fill();
+            
+                ctx.strokeStyle = '#8e44ad';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            
+                // Draw Font Awesome icon using canvas text
+                // We'll render the icon as text using the Font Awesome font
+                ctx.fillStyle = 'white';
+                ctx.font = '16px "Font Awesome 6 Free"';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                // Get the Unicode character for the icon
+                const iconUnicode = getFontAwesomeUnicode(point.icon);
+                if (iconUnicode) {
+                    ctx.fillText(iconUnicode, screenPos.x, screenPos.y);
+                } else {
+                    // Fallback to a pin icon if we can't find the unicode
+                    ctx.fillText('📍', screenPos.x, screenPos.y);
+                }
+            
+                // Draw label if present
+                if (point.label && zoomLevel > 0.3) {
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(point.label, screenPos.x, screenPos.y + 16);
+                }
+                
+                ctx.restore();
+            }
+            
+            function getFontAwesomeUnicode(iconClass) {
+                // Map of common Font Awesome icon names to their Unicode values
+                const iconMap = {
+                    'fa-tree': '\uf1bb',
+                    'fa-mountain': '\uf6fc',
+                    'fa-hospital': '\uf0f8',
+                    'fa-school': '\uf549',
+                    'fa-church': '\uf51d',
+                    'fa-mosque': '\uf678',
+                    'fa-synagogue': '\uf69b',
+                    'fa-landmark': '\uf66f',
+                    'fa-monument': '\uf5a6',
+                    'fa-flag': '\uf024',
+                    'fa-star': '\uf005',
+                    'fa-circle': '\uf111',
+                    'fa-square': '\uf0c8',
+                    'fa-heart': '\uf004',
+                    'fa-home': '\uf015',
+                    'fa-building': '\uf1ad',
+                    'fa-industry': '\uf275',
+                    'fa-bridge': '\ue4c8',
+                    'fa-train': '\uf238',
+                    'fa-plane': '\uf072',
+                    'fa-ship': '\uf21a',
+                    'fa-anchor': '\uf13d',
+                    'fa-campground': '\uf6bb',
+                    'fa-fire': '\uf06d',
+                    'fa-gas-pump': '\uf52f',
+                    'fa-hotel': '\uf594',
+                    'fa-utensils': '\uf2e7',
+                    'fa-coffee': '\uf0f4',
+                    'fa-shopping-cart': '\uf07a',
+                    'fa-hospital-alt': '\uf47d',
+                    'fa-plus': '\u002b',
+                    'fa-minus': '\uf068',
+                    'fa-times': '\uf00d',
+                    'fa-check': '\uf00c',
+                    'fa-exclamation': '\uf12a',
+                    'fa-question': '\uf128',
+                    'fa-info': '\uf129',
+                    'fa-warning': '\uf071',
+                    'fa-skull': '\uf54c',
+                    'fa-bomb': '\uf1e2',
+                    'fa-radiation': '\uf7b9',
+                    'fa-biohazard': '\uf780'
+                };
+            
+                // Extract the icon name from the class (e.g., "fa-solid fa-tree" -> "fa-tree")
+                const parts = iconClass.split(' ');
+                for (const part of parts) {
+                    if (part.startsWith('fa-') && !part.startsWith('fa-solid') && 
+                        !part.startsWith('fa-regular') && !part.startsWith('fa-light') && 
+                        !part.startsWith('fa-brands')) {
+                        return iconMap[part] || null;
+                    }
+                }
+                
+                return null;
+            }
     
             function exportSVG() {
                 const bounds = calculateMapBounds();
@@ -2128,6 +2276,23 @@
                     });
                     svg += '\n    </g>';
                 }
+
+            if (mapData.customPoints.length > 0) {
+                        svg += '\n    <!-- Custom Points -->\n    <g id="customPoints">';
+                        mapData.customPoints.forEach(point => {
+                            const iconUnicode = getFontAwesomeUnicode(point.icon);
+                            const iconDisplay = iconUnicode || '📍';
+                            
+                            svg += `\n        <circle cx="${(point.x * baseScale + offsetX).toFixed(2)}" cy="${(point.y * baseScale + offsetY).toFixed(2)}" r="12" fill="#9b59b6" stroke="#8e44ad" stroke-width="2">
+                    <title>${point.label || 'Custom Point'} (${point.x.toFixed(2)}, ${point.y.toFixed(2)} km)</title>
+                </circle>`;
+                            
+                            if (point.label) {
+                                svg += `\n        <text x="${(point.x * baseScale + offsetX).toFixed(2)}" y="${(point.y * baseScale + offsetY + 16).toFixed(2)}" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="#2c3e50">${point.label}</text>`;
+                            }
+                        });
+                        svg += '\n    </g>';
+                    }
     
                 svg += '\n</svg>';
     

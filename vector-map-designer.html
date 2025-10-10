@@ -358,6 +358,10 @@
                 <button class="tool-btn border" onclick="setTool('border', this)">Border/Boundary</button>
                 <div id="customPathToolsContainer"></div>
                 <div id="customPolygonToolsContainer"></div>
+                <label>
+                    Path/Polygon Label (optional):
+                    <input type="text" id="pathLabel" placeholder="Label for this path/polygon">
+                </label>
             </div>
 
             <div class="tool-section">
@@ -458,6 +462,7 @@
                 <h3>Selected Path</h3>
                 <div class="selected-info">
                     <div>Type: <span id="selectedType">-</span></div>
+                    <div id="selectedLabelDisplay" style="display: none;">Label: <span id="selectedLabel">-</span></div>
                     <div class="distance"><span id="selectedDistance">0</span> km</div>
                     <div id="areaDisplay" style="display: none;" class="area"><span id="selectedArea">0</span> km²</div>
                     <div>Points: <span id="selectedPoints">0</span></div>
@@ -539,6 +544,7 @@
     </div>
 
     <div class="hover-tooltip" id="hoverTooltip">
+        <div id="labelInfo" style="display: none; font-weight: bold; margin-bottom: 5px;">Label: <span id="labelText"></span></div>
         <div id="segmentInfo" style="display: none;">Segment: <span class="segment-dist" id="segmentDist">0.00 km</span></div>
         <div id="totalInfo" style="display: none;">Total Path: <span class="total-dist" id="totalDist">0.00 km</span></div>
         <div id="areaInfo" style="display: none;">Area: <span class="area-display" id="areaDist">0.00 km²</span></div>
@@ -938,6 +944,14 @@
                         hoveredSegment = hoverInfo.segment;
                         
                         const isPolygon = isPolygonType(hoverInfo.path.type);
+                        
+                        // Display label if it exists
+                        if (hoverInfo.path.label) {
+                            document.getElementById('labelInfo').style.display = 'block';
+                            document.getElementById('labelText').textContent = hoverInfo.path.label;
+                        } else {
+                            document.getElementById('labelInfo').style.display = 'none';
+                        }
                         
                         if (isPolygon && hoverInfo.segment) {
                             const segmentLength = hoverInfo.segmentLength;
@@ -1486,10 +1500,13 @@
                     return;
                 }
     
+                const label = document.getElementById('pathLabel').value.trim();
+                
                 const pathData = {
                     id: nextId++,
                     points: [...currentPathPoints],
-                    type: currentTool
+                    type: currentTool,
+                    label: label || null
                 };
     
                 const collection = getCollectionForType(currentTool);
@@ -1497,6 +1514,7 @@
     
                 isDrawingPath = false;
                 currentPathPoints = [];
+                document.getElementById('pathLabel').value = ''; // Clear the label input
                 saveToHistory();
                 redrawCanvas();
                 updateDrawingStatus('Ready');
@@ -1856,6 +1874,14 @@
                     const length = calculatePathLength(path.points);
                     document.getElementById('selectedDistance').textContent = length.toFixed(2);
                     document.getElementById('areaDisplay').style.display = 'none';
+                }
+                
+                // Display label if it exists
+                if (path.label) {
+                    document.getElementById('selectedLabelDisplay').style.display = 'block';
+                    document.getElementById('selectedLabel').textContent = path.label;
+                } else {
+                    document.getElementById('selectedLabelDisplay').style.display = 'none';
                 }
                 
                 document.getElementById('selectedType').textContent = path.type.charAt(0).toUpperCase() + path.type.slice(1);

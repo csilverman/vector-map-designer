@@ -575,7 +575,7 @@
 
         // SVG icon cache
             let svgIconCache = {};
-            let svgBasePath = 'fontawesome-free-7.1.0-web/svgs/regular/';
+            let svgBasePath = 'https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/svgs/solid/';
 
 
         // Custom point editing
@@ -2816,19 +2816,24 @@
             // Create a new Image object
             const img = new Image();
             
-            // Convert SVG to data URL with white color
+            // Try to load from CDN - first try solid, then regular as fallback
             const svgPath = `${svgBasePath}${iconName}.svg`;
             
             // Load the SVG
             fetch(svgPath)
                 .then(response => {
                     if (!response.ok) {
-                        // Try solid folder if regular doesn't exist
-                        return fetch(svgPath.replace('/regular/', '/solid/'));
+                        // Try regular folder if solid doesn't exist
+                        return fetch(svgPath.replace('/solid/', '/regular/'));
                     }
                     return response;
                 })
-                .then(response => response.text())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Icon not found');
+                    }
+                    return response.text();
+                })
                 .then(svgText => {
                     // Modify SVG to be white and add proper sizing
                     let modifiedSvg = svgText

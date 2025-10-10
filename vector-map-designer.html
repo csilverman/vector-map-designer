@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vector Map Designer - Infinite Canvas</title>
-    <link rel="stylesheet" href="fontawesome-free-7.1.0-web/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
             margin: 0;
@@ -367,10 +367,9 @@
                 </label>
                 
                 <button class="tool-btn" onclick="setTool('custom-point', this)" style="background: #ecf0f1; color: #2c3e50;">📍 Custom Point</button>
-
                 <label>
                     Font Awesome Icon:
-                    <input type="text" id="customIcon" placeholder="e.g. tree, hospital, star, mountain, landmark">
+                    <input type="text" id="customIcon" placeholder="e.g. fa-solid fa-tree">
                 </label>
                 <label>
                     Point Label (optional):
@@ -463,12 +462,7 @@
                     Base Scale (pixels per km):
                     <input type="number" id="baseScale" value="10" min="1" max="100" onchange="updateBaseScale()">
                 </label>
-                <label>
-                    Font Awesome SVG Path:
-                    <input type="text" id="svgPath" value="fontawesome-free-7.1.0-web/svgs/regular/" onchange="updateSVGPath()">
-                </label>
             </div>
-
         </div>
 
         <div class="canvas-container" id="canvasContainer">
@@ -529,6 +523,7 @@
             let hoveredVertex = null;
             let hoveredEditSegment = null;
             let extendingFromVertex = null;
+<<<<<<< HEAD
 
 let customOpenPathTools = [];
 
@@ -541,6 +536,8 @@ let customOpenPathTools = [];
             let editingPoint = null;
             let shiftKeyDown = false;
             let draggingPoint = null;
+=======
+>>>>>>> parent of 52327e6 (Custom points)
             
         // Mouse position tracking for add-vertex preview
             let lastMouseX = 0;
@@ -574,16 +571,13 @@ let customOpenPathTools = [];
                 redrawCanvas();
             }
             
-        window.addEventListener('resize', resizeCanvas);
+            window.addEventListener('resize', resizeCanvas);
             resizeCanvas();
             
             //  is this where it should go?
             renderCustomPathToolButtons();
             saveToHistory();
             
-            // Preload common Font Awesome icons
-            preloadCommonIcons();
-                        
             // Keyboard handlers
             document.addEventListener('keydown', handleKeyDown);
             document.addEventListener('keyup', handleKeyUp);
@@ -1830,16 +1824,6 @@ function addCustomPathTool() {
                 URL.revokeObjectURL(url);
             }
     
-    function updateSVGPath() {
-        const newPath = document.getElementById('svgPath').value;
-        if (newPath) {
-            svgBasePath = newPath;
-            // Clear cache and reload
-            svgIconCache = {};
-            preloadCommonIcons();
-            redrawCanvas();
-        }
-    }
     
     function importJSON() {
         // Trigger the hidden file input
@@ -2411,8 +2395,12 @@ function drawPath(points, type, isSelected = false, isCurrent = false, isEditing
                 ctx.restore();
             }
             
+<<<<<<< HEAD
 
         function drawCustomPoint(point) {
+=======
+            function drawCustomPoint(point) {
+>>>>>>> parent of 52327e6 (Custom points)
                 const screenPos = worldToScreen(point.x, point.y);
             
                 ctx.save();
@@ -2421,29 +2409,27 @@ function drawPath(points, type, isSelected = false, isCurrent = false, isEditing
                 // Draw a background circle
                 ctx.fillStyle = point.url ? '#3498db' : '#9b59b6'; // Blue if has URL
                 ctx.beginPath();
-                ctx.arc(screenPos.x, screenPos.y, 14, 0, Math.PI * 2);
+                ctx.arc(screenPos.x, screenPos.y, 12, 0, Math.PI * 2);
                 ctx.fill();
             
                 ctx.strokeStyle = point.url ? '#2980b9' : '#8e44ad';
                 ctx.lineWidth = 2;
                 ctx.stroke();
             
-                // Draw the SVG icon
-                const iconKey = point.icon.toLowerCase().replace(/^fa-/, '').replace('fa-', '');
-                if (svgIconCache[iconKey]) {
-                    const img = svgIconCache[iconKey];
-                    if (img.complete && img.naturalWidth > 0) {
-                        // Draw the icon centered and scaled
-                        const iconSize = 16;
-                        ctx.drawImage(img, screenPos.x - iconSize/2, screenPos.y - iconSize/2, iconSize, iconSize);
-                    } else {
-                        // Fallback while loading
-                        drawFallbackIcon(ctx, screenPos.x, screenPos.y);
-                    }
+                // Draw Font Awesome icon using canvas text
+                // We'll render the icon as text using the Font Awesome font
+                ctx.fillStyle = 'white';
+                ctx.font = '16px "Font Awesome 6 Free"';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                // Get the Unicode character for the icon
+                const iconUnicode = getFontAwesomeUnicode(point.icon);
+                if (iconUnicode) {
+                    ctx.fillText(iconUnicode, screenPos.x, screenPos.y);
                 } else {
-                    // Try to load the icon
-                    loadSVGIcon(iconKey);
-                    drawFallbackIcon(ctx, screenPos.x, screenPos.y);
+                    // Fallback to a pin icon if we can't find the unicode
+                    ctx.fillText('📍', screenPos.x, screenPos.y);
                 }
             
                 // Draw label if present
@@ -2452,7 +2438,7 @@ function drawPath(points, type, isSelected = false, isCurrent = false, isEditing
                     ctx.font = 'bold 12px Arial';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'top';
-                    ctx.fillText(point.label, screenPos.x, screenPos.y + 18);
+                    ctx.fillText(point.label, screenPos.x, screenPos.y + 16);
                 }
                 
                 // Show link indicator
@@ -2466,80 +2452,13 @@ function drawPath(points, type, isSelected = false, isCurrent = false, isEditing
                 
                 ctx.restore();
             }
+<<<<<<< HEAD
 
         function loadSVGIcon(iconName) {
             if (svgIconCache[iconName]) return;
+=======
+>>>>>>> parent of 52327e6 (Custom points)
             
-            // Create a new Image object
-            const img = new Image();
-            
-            // Convert SVG to data URL with white color
-            const svgPath = `${svgBasePath}${iconName}.svg`;
-            
-            // Load the SVG
-            fetch(svgPath)
-                .then(response => {
-                    if (!response.ok) {
-                        // Try solid folder if regular doesn't exist
-                        return fetch(svgPath.replace('/regular/', '/solid/'));
-                    }
-                    return response;
-                })
-                .then(response => response.text())
-                .then(svgText => {
-                    // Modify SVG to be white and add proper sizing
-                    let modifiedSvg = svgText
-                        .replace(/<svg/, '<svg fill="white"')
-                        .replace(/fill="[^"]*"/g, 'fill="white"')
-                        .replace(/stroke="[^"]*"/g, 'stroke="white"');
-                    
-                    // Convert to data URL
-                    const blob = new Blob([modifiedSvg], { type: 'image/svg+xml' });
-                    const url = URL.createObjectURL(blob);
-                    
-                    img.onload = function() {
-                        URL.revokeObjectURL(url);
-                        redrawCanvas();
-                    };
-                    
-                    img.src = url;
-                    svgIconCache[iconName] = img;
-                })
-                .catch(error => {
-                    console.warn(`Could not load icon: ${iconName}`, error);
-                    // Use a default icon
-                    svgIconCache[iconName] = null;
-                });
-        }
-
-
-        function preloadCommonIcons() {
-            const commonIcons = [
-                'tree', 'mountain', 'hospital', 'star', 'flag', 'home', 
-                'building', 'church', 'mosque', 'landmark', 'bridge', 
-                'anchor', 'plane', 'train', 'ship', 'fire', 'heart',
-                'circle', 'square', 'campground', 'industry', 'gas-pump',
-                'utensils', 'coffee', 'hotel', 'shopping-cart', 'plus',
-                'check', 'times', 'exclamation', 'question', 'info'
-            ];
-            
-            commonIcons.forEach(icon => loadSVGIcon(icon));
-        }
-            
-            function drawFallbackIcon(ctx, x, y) {
-                // Simple pin icon as fallback
-                ctx.fillStyle = 'white';
-                ctx.beginPath();
-                ctx.arc(x, y - 3, 4, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.beginPath();
-                ctx.moveTo(x, y + 1);
-                ctx.lineTo(x - 3, y + 6);
-                ctx.lineTo(x + 3, y + 6);
-                ctx.closePath();
-                ctx.fill();
-            }
-                        
             function getFontAwesomeUnicode(iconClass) {
                 // Map of common Font Awesome icon names to their Unicode values
                 const iconMap = {

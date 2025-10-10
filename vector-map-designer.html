@@ -357,6 +357,7 @@
                 <button class="tool-btn water" onclick="setTool('water', this)">Water Body (Polygon)</button>
                 <button class="tool-btn border" onclick="setTool('border', this)">Border/Boundary</button>
                 <div id="customPathToolsContainer"></div>
+                <div id="customPolygonToolsContainer"></div>
             </div>
 
             <div class="tool-section">
@@ -388,6 +389,47 @@
                     <div style="margin-top: 10px;">
                         <button class="action-btn secondary" onclick="addCustomPathTool()">✓ Add Tool</button>
                         <button class="action-btn" onclick="closeAddCustomPathToolDialog()">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tool-section">
+                <h3>Custom Polygon Tools</h3>
+                <button class="action-btn secondary" onclick="openAddCustomPolygonToolDialog()">➕ Add Custom Polygon Tool</button>
+                
+                <div id="addCustomPolygonToolDialog" style="display: none; margin-top: 15px; padding: 15px; border: 2px solid #3498db; border-radius: 4px; background: #ecf0f1;">
+                    <h4 style="margin-bottom: 10px; font-size: 13px;">New Custom Polygon Tool</h4>
+                    <label>
+                        Tool Name:
+                        <input type="text" id="customPolygonToolName" placeholder="e.g. Park, Lake, Forest">
+                    </label>
+                    <label>
+                        Path Thickness (px):
+                        <input type="number" id="customPolygonThickness" placeholder="e.g. 2" min="1" max="20" value="2">
+                    </label>
+                    <label>
+                        Path Color:
+                        <input type="color" id="customPolygonColor" value="#3498db">
+                    </label>
+                    <label>
+                        Path Style:
+                        <select id="customPolygonStyle">
+                            <option value="solid">Solid</option>
+                            <option value="dashed">Dashed</option>
+                            <option value="dotted">Dotted</option>
+                        </select>
+                    </label>
+                    <label>
+                        Fill Color:
+                        <input type="color" id="customPolygonFillColor" value="#3498db">
+                    </label>
+                    <label>
+                        Fill Opacity (0-1):
+                        <input type="number" id="customPolygonFillOpacity" placeholder="e.g. 0.4" min="0" max="1" step="0.1" value="0.4">
+                    </label>
+                    <div style="margin-top: 10px;">
+                        <button class="action-btn secondary" onclick="addCustomPolygonTool()">✓ Add Tool</button>
+                        <button class="action-btn" onclick="closeAddCustomPolygonToolDialog()">Cancel</button>
                     </div>
                 </div>
             </div>
@@ -556,7 +598,6 @@
             let dragPath = null;
 
 
-
             
             let mapData = {
                 highways: [],
@@ -566,11 +607,13 @@
                 borders: [],
                 cities: [],
                 customPoints: [],
-                customPaths: []
+                customPaths: [],
+                customPolygons: []
             };
             
             // Custom path tool definitions
             let customPathTools = [];
+            let customPolygonTools = [];
             let history = [];
             let nextId = 1;
             
@@ -672,7 +715,8 @@
                         ...mapData.rivers,
                         ...mapData.waterBodies,
                         ...mapData.borders,
-                        ...(mapData.customPaths || [])
+                        ...(mapData.customPaths || []),
+                        ...(mapData.customPolygons || [])
                     ];
                     
                     for (const path of allPaths) {
@@ -773,7 +817,8 @@
                         ...mapData.rivers,
                         ...mapData.waterBodies,
                         ...mapData.borders,
-                        ...(mapData.customPaths || [])
+                        ...(mapData.customPaths || []),
+                        ...(mapData.customPolygons || [])
                     ];
                     
                     for (const path of allPaths) {
@@ -793,7 +838,7 @@
                         if (foundSegment) break;
                         
                         // For polygons, check closing segment
-                        if (path.type === 'water' || path.type === 'border') {
+                        if (isPolygonType(path.type)) {
                             const dist = distanceToSegment(worldPos, path.points[path.points.length - 1], path.points[0]);
                             if (dist < 0.5) {
                                 hoveredPath = path;
@@ -841,7 +886,8 @@
                         ...mapData.rivers,
                         ...mapData.waterBodies,
                         ...mapData.borders,
-                        ...(mapData.customPaths || [])
+                        ...(mapData.customPaths || []),
+                        ...(mapData.customPolygons || [])
                     ];
                     
                     for (const path of allPaths) {
@@ -891,7 +937,7 @@
                         hoveredPath = hoverInfo.path;
                         hoveredSegment = hoverInfo.segment;
                         
-                        const isPolygon = hoverInfo.path.type === 'water' || hoverInfo.path.type === 'border';
+                        const isPolygon = isPolygonType(hoverInfo.path.type);
                         
                         if (isPolygon && hoverInfo.segment) {
                             const segmentLength = hoverInfo.segmentLength;
@@ -971,7 +1017,8 @@
                         ...mapData.rivers,
                         ...mapData.waterBodies,
                         ...mapData.borders,
-                        ...(mapData.customPaths || [])
+                        ...(mapData.customPaths || []),
+                        ...(mapData.customPolygons || [])
                     ];
                     
                     for (const path of allPaths) {
@@ -988,7 +1035,7 @@
                         }
                         
                         // For polygons, also check the closing segment
-                        if (path.type === 'water' || path.type === 'border') {
+                        if (isPolygonType(path.type)) {
                             const dist = distanceToSegment(worldPos, path.points[path.points.length - 1], path.points[0]);
                             if (dist < 0.5) {
                                 // Insert at the end (which closes the polygon)
@@ -1359,6 +1406,10 @@
                         if (type && type.startsWith('custom-path-')) {
                             return 'customPaths';
                         }
+                        // Check if it's a custom polygon tool
+                        if (type && type.startsWith('custom-polygon-')) {
+                            return 'customPolygons';
+                        }
                         return 'highways';
                 }
             }
@@ -1403,6 +1454,14 @@
                 // Check if it's a custom path tool
                 if (!toolDisplayName && tool && tool.startsWith('custom-path-')) {
                     const customTool = getCustomPathToolById(tool);
+                    if (customTool) {
+                        toolDisplayName = customTool.name;
+                    }
+                }
+                
+                // Check if it's a custom polygon tool
+                if (!toolDisplayName && tool && tool.startsWith('custom-polygon-')) {
+                    const customTool = getCustomPolygonToolById(tool);
                     if (customTool) {
                         toolDisplayName = customTool.name;
                     }
@@ -1559,6 +1618,93 @@
                 return customPathTools.find(tool => tool.id === toolId);
             }
 
+            // Custom Polygon Tool Management
+            function openAddCustomPolygonToolDialog() {
+                document.getElementById('addCustomPolygonToolDialog').style.display = 'block';
+            }
+            
+            function closeAddCustomPolygonToolDialog() {
+                document.getElementById('addCustomPolygonToolDialog').style.display = 'none';
+                document.getElementById('customPolygonToolName').value = '';
+                document.getElementById('customPolygonThickness').value = '2';
+                document.getElementById('customPolygonColor').value = '#3498db';
+                document.getElementById('customPolygonStyle').value = 'solid';
+                document.getElementById('customPolygonFillColor').value = '#3498db';
+                document.getElementById('customPolygonFillOpacity').value = '0.4';
+            }
+            
+            function addCustomPolygonTool() {
+                const name = document.getElementById('customPolygonToolName').value.trim();
+                const thickness = parseInt(document.getElementById('customPolygonThickness').value);
+                const color = document.getElementById('customPolygonColor').value;
+                const style = document.getElementById('customPolygonStyle').value;
+                const fillColor = document.getElementById('customPolygonFillColor').value;
+                const fillOpacity = parseFloat(document.getElementById('customPolygonFillOpacity').value);
+                
+                if (!name) {
+                    alert('Please enter a tool name');
+                    return;
+                }
+                
+                if (!thickness || thickness < 1 || thickness > 20) {
+                    alert('Please enter a valid thickness between 1 and 20');
+                    return;
+                }
+                
+                if (isNaN(fillOpacity) || fillOpacity < 0 || fillOpacity > 1) {
+                    alert('Please enter a valid opacity between 0 and 1');
+                    return;
+                }
+                
+                // Generate a unique ID for this tool
+                const toolId = 'custom-polygon-' + Date.now();
+                
+                // Add to custom tools array
+                customPolygonTools.push({
+                    id: toolId,
+                    name: name,
+                    thickness: thickness,
+                    color: color,
+                    style: style,
+                    fillColor: fillColor,
+                    fillOpacity: fillOpacity
+                });
+                
+                // Initialize the collection for this tool in mapData
+                if (!mapData.customPolygons) {
+                    mapData.customPolygons = [];
+                }
+                
+                // Create button for the tool
+                renderCustomPolygonToolButtons();
+                
+                closeAddCustomPolygonToolDialog();
+                saveToHistory();
+            }
+            
+            function renderCustomPolygonToolButtons() {
+                const container = document.getElementById('customPolygonToolsContainer');
+                container.innerHTML = '';
+                
+                customPolygonTools.forEach(tool => {
+                    const button = document.createElement('button');
+                    button.className = 'tool-btn';
+                    button.onclick = function() { setTool(tool.id, this); };
+                    button.textContent = tool.name;
+                    button.style.borderLeft = `6px solid ${tool.color}`;
+                    container.appendChild(button);
+                });
+            }
+            
+            function getCustomPolygonToolById(toolId) {
+                return customPolygonTools.find(tool => tool.id === toolId);
+            }
+
+            // Helper function to check if a type is a polygon
+            function isPolygonType(type) {
+                return type === 'water' || type === 'border' || (type && type.startsWith('custom-polygon-'));
+            }
+
 
         function findCustomPointAtPosition(pos, tolerance = 1.0) {
                 for (const point of mapData.customPoints) {
@@ -1648,7 +1794,8 @@
                     ...mapData.roads.map(p => ({...p, collection: 'roads'})),
                     ...mapData.rivers.map(p => ({...p, collection: 'rivers'})),
                     ...mapData.waterBodies.map(p => ({...p, collection: 'waterBodies'})),
-                    ...(mapData.customPaths || []).map(p => ({...p, collection: 'customPaths'}))
+                    ...(mapData.customPaths || []).map(p => ({...p, collection: 'customPaths'})),
+                    ...(mapData.customPolygons || []).map(p => ({...p, collection: 'customPolygons'}))
                 ].reverse();
     
                 for (const path of allPaths) {
@@ -1663,7 +1810,7 @@
                         }
                     }
                     
-                    if (path.type === 'water' || path.type === 'border') {
+                    if (isPolygonType(path.type)) {
                         const dist = distanceToSegment(pos, path.points[path.points.length - 1], path.points[0]);
                         if (dist < tolerance) {
                             return {
@@ -1697,7 +1844,7 @@
             }
     
             function showPathInfo(path) {
-                const isPolygon = path.type === 'water' || path.type === 'border';
+                const isPolygon = isPolygonType(path.type);
                 
                 if (isPolygon) {
                     const area = calculatePolygonArea(path.points);
@@ -1852,10 +1999,11 @@
             }
     
             function exportJSON() {
-                // Create export data that includes both the map data and custom path tool definitions
+                // Create export data that includes both the map data and custom tool definitions
                 const exportData = {
                     ...mapData,
-                    customPathToolDefinitions: customPathTools
+                    customPathToolDefinitions: customPathTools,
+                    customPolygonToolDefinitions: customPolygonTools
                 };
                 const dataStr = JSON.stringify(exportData, null, 2);
                 const blob = new Blob([dataStr], { type: 'application/json' });
@@ -1915,6 +2063,16 @@
                 if (!importedData.customPoints) {
                     importedData.customPoints = [];
                 }
+                
+                // Handle customPaths for backward compatibility
+                if (!importedData.customPaths) {
+                    importedData.customPaths = [];
+                }
+                
+                // Handle customPolygons for backward compatibility
+                if (!importedData.customPolygons) {
+                    importedData.customPolygons = [];
+                }
                     
                 if (!hasValidStructure) {
                     throw new Error('JSON file does not contain valid map data');
@@ -1961,6 +2119,12 @@
                 if (importedData.customPathToolDefinitions) {
                     customPathTools = importedData.customPathToolDefinitions;
                     renderCustomPathToolButtons();
+                }
+                
+                // If the imported data contains custom polygon tool definitions, restore them
+                if (importedData.customPolygonToolDefinitions) {
+                    customPolygonTools = importedData.customPolygonToolDefinitions;
+                    renderCustomPolygonToolButtons();
                 }
                 
                 // Clear any active editing states
@@ -2071,25 +2235,36 @@
                         drawPath(path.points, path.type, false, false);
                     });
                 }
+                
+                // Draw custom polygons
+                if (mapData.customPolygons && mapData.customPolygons.length > 0) {
+                    mapData.customPolygons.forEach(polygon => {
+                        drawPolygon(polygon.points, false, false, false, polygon.type);
+                    });
+                }
     
                 mapData.cities.forEach(city => drawCity(city));
                 mapData.customPoints.forEach(point => drawCustomPoint(point));
     
                 if (isDrawingPath && currentPathPoints.length > 0) {
-                    drawPath(currentPathPoints, currentTool, false, true);
+                    if (isPolygonType(currentTool)) {
+                        drawPolygon(currentPathPoints, false, false, false, currentTool);
+                    } else {
+                        drawPath(currentPathPoints, currentTool, false, true);
+                    }
                 }
     
                 if (selectedPath && !isEditMode) {
-                    if (selectedPath.type === 'water' || selectedPath.type === 'border') {
-                        drawPolygon(selectedPath.points, true, selectedPath.type === 'border');
+                    if (isPolygonType(selectedPath.type)) {
+                        drawPolygon(selectedPath.points, true, selectedPath.type === 'border', false, selectedPath.type);
                     } else {
                         drawPath(selectedPath.points, selectedPath.type, true, false);
                     }
                 }
     
                 if (isEditMode && editingPath) {
-                    if (editingPath.type === 'water' || editingPath.type === 'border') {
-                        drawPolygon(editingPath.points, true, editingPath.type === 'border', true);
+                    if (isPolygonType(editingPath.type)) {
+                        drawPolygon(editingPath.points, true, editingPath.type === 'border', true, editingPath.type);
                     } else {
                         drawPath(editingPath.points, editingPath.type, true, false, true);
                     }
@@ -2214,7 +2389,7 @@
                 });
             }
     
-            function drawPolygon(points, isSelected = false, isBorder = false, isEditing = false) {
+            function drawPolygon(points, isSelected = false, isBorder = false, isEditing = false, type = 'water') {
                 if (points.length < 3) return;
     
                 ctx.save();
@@ -2229,7 +2404,39 @@
                 }
                 ctx.closePath();
     
-                if (isBorder) {
+                // Check if it's a custom polygon tool
+                if (type && type.startsWith('custom-polygon-')) {
+                    const customTool = getCustomPolygonToolById(type);
+                    if (customTool) {
+                        // Apply custom fill
+                        const fillColor = customTool.fillColor;
+                        const fillOpacity = customTool.fillOpacity;
+                        const rgb = parseInt(fillColor.slice(1), 16);
+                        const r = (rgb >> 16) & 255;
+                        const g = (rgb >> 8) & 255;
+                        const b = rgb & 255;
+                        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${fillOpacity})`;
+                        ctx.fill();
+                        
+                        // Apply custom stroke
+                        ctx.strokeStyle = customTool.color;
+                        ctx.lineWidth = isSelected ? customTool.thickness + 2 : customTool.thickness;
+                        
+                        // Apply path style
+                        switch(customTool.style) {
+                            case 'dashed':
+                                ctx.setLineDash([10, 5]);
+                                break;
+                            case 'dotted':
+                                ctx.setLineDash([2, 3]);
+                                break;
+                            case 'solid':
+                            default:
+                                ctx.setLineDash([]);
+                                break;
+                        }
+                    }
+                } else if (isBorder) {
                     ctx.strokeStyle = '#34495e';
                     ctx.lineWidth = isSelected ? 5 : 3;
                     ctx.setLineDash([10, 5]);
@@ -2719,6 +2926,47 @@
                     });
                 }
                 
+                // Add custom polygons
+                if (mapData.customPolygons && mapData.customPolygons.length > 0) {
+                    // Group by tool type
+                    const polygonsByTool = {};
+                    mapData.customPolygons.forEach(polygon => {
+                        if (!polygonsByTool[polygon.type]) {
+                            polygonsByTool[polygon.type] = [];
+                        }
+                        polygonsByTool[polygon.type].push(polygon);
+                    });
+                    
+                    // Export each group
+                    Object.keys(polygonsByTool).forEach(toolType => {
+                        const customTool = getCustomPolygonToolById(toolType);
+                        if (customTool) {
+                            svg += `\n    <!-- ${customTool.name} -->\n    <g id="${customTool.name}">`;
+                            polygonsByTool[toolType].forEach((polygon, index) => {
+                                const pathD = polygon.points.map((p, i) => 
+                                    `${i === 0 ? 'M' : 'L'} ${(p.x * baseScale + offsetX).toFixed(2)} ${(p.y * baseScale + offsetY).toFixed(2)}`
+                                ).join(' ') + ' Z';
+                                const area = calculatePolygonArea(polygon.points);
+                                
+                                const dashArray = customTool.style === 'dashed' ? '10 5' : 
+                                                customTool.style === 'dotted' ? '2 3' : '';
+                                const dashAttr = dashArray ? ` stroke-dasharray="${dashArray}"` : '';
+                                
+                                const rgb = parseInt(customTool.fillColor.slice(1), 16);
+                                const r = (rgb >> 16) & 255;
+                                const g = (rgb >> 8) & 255;
+                                const b = rgb & 255;
+                                const fillStyle = `rgba(${r}, ${g}, ${b}, ${customTool.fillOpacity})`;
+                                
+                                svg += `\n        <path d="${pathD}" fill="${fillStyle}" stroke="${customTool.color}" stroke-width="${customTool.thickness}"${dashAttr}>
+                <title>${customTool.name} #${index + 1} - Area: ${area.toFixed(2)} km²</title>
+            </path>`;
+                            });
+                            svg += '\n    </g>\n';
+                        }
+                    });
+                }
+                
                 if (mapData.borders.length > 0) {
                     svg += '    <!-- Borders -->\n    <g id="borders">';
                     mapData.borders.forEach((polygon, index) => {
@@ -2806,6 +3054,11 @@
                 // Include custom paths
                 if (mapData.customPaths && mapData.customPaths.length > 0) {
                     allPathCollections.push(...mapData.customPaths);
+                }
+                
+                // Include custom polygons
+                if (mapData.customPolygons && mapData.customPolygons.length > 0) {
+                    allPathCollections.push(...mapData.customPolygons);
                 }
                 
                 allPathCollections.forEach(item => {

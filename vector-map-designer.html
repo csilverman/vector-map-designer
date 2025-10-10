@@ -446,6 +446,16 @@
                     Point Label (optional):
                     <input type="text" id="customLabel" placeholder="Enter label">
                 </label>
+                
+                <button class="tool-btn" onclick="setTool('text-label', this)" style="background: #ecf0f1; color: #2c3e50; margin-top: 10px;">📝 Text Label</button>
+                <label>
+                    Label Text:
+                    <input type="text" id="textLabelInput" placeholder="Enter text">
+                </label>
+                <label>
+                    Font Size (px):
+                    <input type="number" id="textLabelSize" placeholder="14" value="14" min="8" max="72">
+                </label>
             </div>
 
             <div class="tool-section" id="selectedPathInfo" style="display: none;">
@@ -604,7 +614,8 @@
                 cities: [],
                 customPoints: [],
                 customPaths: [],
-                customPolygons: []
+                customPolygons: [],
+                textLabels: []
             };
             
             // Custom path tool definitions
@@ -700,6 +711,15 @@
                     const point = findCustomPointAtPosition(worldPos);
                     if (point) {
                         draggingPoint = point;
+                        canvas.style.cursor = 'grabbing';
+                        e.preventDefault();
+                        return;
+                    }
+                    
+                    // Check if shift-clicking a text label to drag it
+                    const label = findTextLabelAtPosition(worldPos);
+                    if (label) {
+                        draggingPoint = label;
                         canvas.style.cursor = 'grabbing';
                         e.preventDefault();
                         return;
@@ -861,12 +881,13 @@
                     return;
                 }
 
-            // Highlight custom points when shift is held
+            // Highlight custom points and text labels when shift is held
                 if (shiftKeyDown && !draggingPoint) {
                     const worldPos = screenToWorld(e.clientX, e.clientY);
                     const point = findCustomPointAtPosition(worldPos);
+                    const label = findTextLabelAtPosition(worldPos);
                     
-                    if (point) {
+                    if (point || label) {
                         canvas.style.cursor = 'grab';
                         // Could add highlighting here if desired
                     } else {
@@ -1003,6 +1024,13 @@
                         return;
                     }
                     
+                    // Check if control-clicking a text label
+                    const label = findTextLabelAtPosition(worldPos);
+                    if (label) {
+                        openEditTextLabelModal(label);
+                        return;
+                    }
+                    
                     // Check if control-clicking a path or polygon
                     const hoverInfo = findPathAndSegmentAtPoint(worldPos);
                     if (hoverInfo) {
@@ -1076,7 +1104,9 @@
                 const existing = findCustomPointAtPosition(worldPos, 1.0);
                 if (!existing) {
                     placeCustomPoint(worldPos);
-                }                } else {
+                }                } else if (currentTool === 'text-label') {
+                    placeTextLabel(worldPos);
+                } else {
                     if (!isDrawingPath) {
                         isDrawingPath = true;
                         currentPathPoints = [];
@@ -1146,6 +1176,13 @@
                 const point = findCustomPointAtPosition(worldPos);
                 if (point) {
                     openEditPointModal(point);
+                    return;
+                }
+                
+                // Check if right-clicking a text label
+                const label = findTextLabelAtPosition(worldPos);
+                if (label) {
+                    openEditTextLabelModal(label);
                     return;
                 }
                 
@@ -1226,7 +1263,7 @@
                     } else {
                         canvas.style.cursor = 'pointer';
                     }
-            } else if (currentTool === 'custom-point') {
+            } else if (currentTool === 'custom-point' || currentTool === 'text-label') {
                     canvas.style.cursor = 'pointer';
                 } else {
                     canvas.style.cursor = 'crosshair';
@@ -1561,6 +1598,28 @@
                 saveToHistory();
                 redrawCanvas();
             }
+            
+        function placeTextLabel(pos) {
+                const text = document.getElementById('textLabelInput').value.trim();
+                
+                if (!text) {
+                    alert('Please enter text for the label');
+                    return;
+                }
+                
+                const fontSize = parseInt(document.getElementById('textLabelSize').value) || 14;
+                
+                mapData.textLabels.push({
+                    id: nextId++,
+                    x: pos.x,
+                    y: pos.y,
+                    text: text,
+                    fontSize: fontSize
+                });
+            
+                saveToHistory();
+                redrawCanvas();
+            }
 
             // Custom Path Tool Management
             function openAddCustomPathToolDialog() {
@@ -1731,6 +1790,16 @@
                 return null;
             }
             
+        function findTextLabelAtPosition(pos, tolerance = 2.0) {
+                for (const label of mapData.textLabels) {
+                    const dist = calculateSegmentLength(pos, { x: label.x, y: label.y });
+                    if (dist < tolerance) {
+                        return label;
+                    }
+                }
+                return null;
+            }
+            
             function openEditPointModal(point) {
                 editingPoint = point;
                 document.getElementById('editIcon').value = point.icon;
@@ -1822,6 +1891,46 @@
                     }
                     
                     closeEditPathModal();
+                    saveToHistory();
+                    redrawCanvas();
+                }
+            }
+            
+            // Text Label editing modal functions
+            let editingTextLabel = null;
+            
+            function openEditTextLabelModal(label) {
+                editingTextLabel = label;
+                document.getElementById('editTextLabelText').value = label.text || '';
+                document.getElementById('editTextLabelSize').value = label.fontSize || 14;
+                document.getElementById('editTextLabelModal').style.display = 'flex';
+            }
+            
+            function closeEditTextLabelModal() {
+                editingTextLabel = null;
+                document.getElementById('editTextLabelModal').style.display = 'none';
+            }
+            
+            function saveTextLabelEdit() {
+                if (!editingTextLabel) return;
+                
+                editingTextLabel.text = document.getElementById('editTextLabelText').value.trim();
+                editingTextLabel.fontSize = parseInt(document.getElementById('editTextLabelSize').value) || 14;
+                
+                closeEditTextLabelModal();
+                saveToHistory();
+                redrawCanvas();
+            }
+            
+            function deleteTextLabelFromModal() {
+                if (!editingTextLabel) return;
+                
+                if (confirm('Delete this text label?')) {
+                    const index = mapData.textLabels.findIndex(l => l.id === editingTextLabel.id);
+                    if (index !== -1) {
+                        mapData.textLabels.splice(index, 1);
+                    }
+                    closeEditTextLabelModal();
                     saveToHistory();
                     redrawCanvas();
                 }
@@ -2020,7 +2129,10 @@
                         waterBodies: [],
                         borders: [],
                         cities: [],
-                        customPoints: []
+                        customPoints: [],
+                        customPaths: [],
+                        customPolygons: [],
+                        textLabels: []
                     };
                     history = [];
                     selectedPath = null;
@@ -2319,6 +2431,9 @@
     
                 mapData.cities.forEach(city => drawCity(city));
                 mapData.customPoints.forEach(point => drawCustomPoint(point));
+                
+                // Draw text labels
+                mapData.textLabels.forEach(label => drawTextLabel(label));
     
                 if (isDrawingPath && currentPathPoints.length > 0) {
                     if (isPolygonType(currentTool)) {
@@ -2873,6 +2988,32 @@
             
             commonIcons.forEach(icon => loadSVGIcon(icon));
         }
+        
+        function drawTextLabel(label) {
+            const screenPos = worldToScreen(label.x, label.y);
+            
+            ctx.save();
+            ctx.fillStyle = '#2c3e50';
+            ctx.font = `bold ${label.fontSize}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Draw background for better readability
+            const metrics = ctx.measureText(label.text);
+            const padding = 4;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.fillRect(
+                screenPos.x - metrics.width/2 - padding, 
+                screenPos.y - label.fontSize/2 - padding,
+                metrics.width + padding * 2,
+                label.fontSize + padding * 2
+            );
+            
+            // Draw text
+            ctx.fillStyle = '#2c3e50';
+            ctx.fillText(label.text, screenPos.x, screenPos.y);
+            ctx.restore();
+        }
             
             function drawFallbackIcon(ctx, x, y) {
                 // Simple pin icon as fallback
@@ -3088,6 +3229,14 @@
                         });
                         svg += '\n    </g>';
                     }
+                    
+                if (mapData.textLabels && mapData.textLabels.length > 0) {
+                        svg += '\n    <!-- Text Labels -->\n    <g id="textLabels">';
+                        mapData.textLabels.forEach(label => {
+                            svg += `\n        <text x="${(label.x * baseScale + offsetX).toFixed(2)}" y="${(label.y * baseScale + offsetY).toFixed(2)}" text-anchor="middle" font-family="Arial" font-size="${label.fontSize}" font-weight="bold" fill="#2c3e50">${label.text}</text>`;
+                        });
+                        svg += '\n    </g>';
+                    }
     
                 svg += '\n</svg>';
     
@@ -3155,6 +3304,24 @@
                     maxX = Math.max(maxX, city.x);
                     maxY = Math.max(maxY, city.y);
                 });
+                
+                // Include custom points
+                mapData.customPoints.forEach(point => {
+                    minX = Math.min(minX, point.x);
+                    minY = Math.min(minY, point.y);
+                    maxX = Math.max(maxX, point.x);
+                    maxY = Math.max(maxY, point.y);
+                });
+                
+                // Include text labels
+                if (mapData.textLabels && mapData.textLabels.length > 0) {
+                    mapData.textLabels.forEach(label => {
+                        minX = Math.min(minX, label.x);
+                        minY = Math.min(minY, label.y);
+                        maxX = Math.max(maxX, label.x);
+                        maxY = Math.max(maxY, label.y);
+                    });
+                }
     
                 return minX === Infinity ? { minX: 0, minY: 0, maxX: 100, maxY: 100 } : { minX, minY, maxX, maxY };
             }
@@ -3211,6 +3378,26 @@
                     <button onclick="savePathEdit()" style="flex: 1; padding: 10px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Save</button>
                     <button onclick="deletePathFromModal()" style="flex: 1; padding: 10px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Delete</button>
                     <button onclick="closeEditPathModal()" style="flex: 1; padding: 10px; background: #95a5a6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Cancel</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Edit Text Label Modal -->
+        <div id="editTextLabelModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+            <div style="background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); max-width: 400px; width: 90%;">
+                <h3 style="margin-top: 0; color: #2c3e50;">Edit Text Label</h3>
+                <label style="display: block; margin-bottom: 15px;">
+                    Text:
+                    <input type="text" id="editTextLabelText" style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #bdc3c7; border-radius: 4px;">
+                </label>
+                <label style="display: block; margin-bottom: 20px;">
+                    Font Size (px):
+                    <input type="number" id="editTextLabelSize" style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #bdc3c7; border-radius: 4px;" min="8" max="72">
+                </label>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="saveTextLabelEdit()" style="flex: 1; padding: 10px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Save</button>
+                    <button onclick="deleteTextLabelFromModal()" style="flex: 1; padding: 10px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Delete</button>
+                    <button onclick="closeEditTextLabelModal()" style="flex: 1; padding: 10px; background: #95a5a6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Cancel</button>
                 </div>
             </div>
         </div>

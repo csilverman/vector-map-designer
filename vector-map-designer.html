@@ -97,10 +97,6 @@
 
         .tool-btn.highway::before { background: #e74c3c; }
         .tool-btn.road::before { background: #95a5a6; }
-        .tool-btn.city::before { 
-            background: #f39c12;
-            border-radius: 50%;
-        }
         .tool-btn.water::before { 
             background: linear-gradient(135deg, #3498db 50%, transparent 50%);
             border: 2px solid #3498db;
@@ -440,12 +436,6 @@
 
             <div class="tool-section">
                 <h3>Placement Tools</h3>
-                <button class="tool-btn city" onclick="setTool('city', this)">City</button>
-                <label>
-                    City Name:
-                    <input type="text" id="cityName" placeholder="Enter city name">
-                </label>
-                
                 <button class="tool-btn" onclick="setTool('custom-point', this)" style="background: #ecf0f1; color: #2c3e50;">📍 Custom Point</button>
 
                 <label>
@@ -651,17 +641,20 @@
             canvas.addEventListener('wheel', handleWheel, { passive: false });
             
         function handleKeyDown(e) {
+                // Don't handle keyboard shortcuts when typing in an input field
+                const isTyping = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA';
+                
                 if (e.key === 'Shift' && !shiftKeyDown) {
                     shiftKeyDown = true;
                     updateCursor();
-                } else if (e.key === ' ' && !spacebarDown) {
+                } else if (e.key === ' ' && !spacebarDown && !isTyping) {
                     e.preventDefault();
                     spacebarDown = true;
                     canvas.classList.add('panning');
                     updateCursor();
-                } else if (e.key === 'Enter' && isDrawingPath) {
+                } else if (e.key === 'Enter' && isDrawingPath && !isTyping) {
                     finishCurrentPath();
-                } else if (e.key === 'Escape') {
+                } else if (e.key === 'Escape' && !isTyping) {
                     if (isEditMode) {
                         exitEditMode();
                     } else if (currentTool === 'vertex-select' && draggingVertex) {
@@ -673,7 +666,7 @@
                     } else {
                         cancelCurrentPath();
                     }
-                } else if (e.key === 'Delete' && selectedPath && !isEditMode) {
+                } else if (e.key === 'Delete' && selectedPath && !isEditMode && !isTyping) {
                     deleteSelected();
                 }
             }
@@ -1071,8 +1064,6 @@
                 } else if (extendingFromVertex !== null) {
                     extendingFromVertex.path.points.push(worldPos);
                     redrawCanvas();
-                } else if (currentTool === 'city') {
-                    placeCity(worldPos);
                 } else if (currentTool === 'custom-point') {
  // Only add if not clicking an existing custom point
                 const existing = findCustomPointAtPosition(worldPos, 1.0);
@@ -1228,7 +1219,7 @@
                     } else {
                         canvas.style.cursor = 'pointer';
                     }
-            } else if (currentTool === 'city' || currentTool === 'custom-point') {
+            } else if (currentTool === 'custom-point') {
                     canvas.style.cursor = 'pointer';
                 } else {
                     canvas.style.cursor = 'crosshair';
@@ -1527,19 +1518,18 @@
                 updateDrawingStatus('Ready');
             }
     
-            function placeCity(pos) {
-                const cityName = document.getElementById('cityName').value || 'Unnamed City';
-                
-                mapData.cities.push({
-                    id: nextId++,
-                    name: cityName,
-                    x: pos.x,
-                    y: pos.y
-                });
-    
-                saveToHistory();
-                redrawCanvas();
-            }
+            // City tool removed - cities array kept for backwards compatibility with existing data
+            // function placeCity(pos) {
+            //     const cityName = document.getElementById('cityName').value || 'Unnamed City';
+            //     mapData.cities.push({
+            //         id: nextId++,
+            //         name: cityName,
+            //         x: pos.x,
+            //         y: pos.y
+            //     });
+            //     saveToHistory();
+            //     redrawCanvas();
+            // }
     
         function placeCustomPoint(pos) {
                 const iconClass = document.getElementById('customIcon').value.trim();

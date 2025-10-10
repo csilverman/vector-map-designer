@@ -356,6 +356,40 @@
                 <button class="tool-btn river" onclick="setTool('river', this)">River</button>
                 <button class="tool-btn water" onclick="setTool('water', this)">Water Body (Polygon)</button>
                 <button class="tool-btn border" onclick="setTool('border', this)">Border/Boundary</button>
+                <div id="customPathToolsContainer"></div>
+            </div>
+
+            <div class="tool-section">
+                <h3>Custom Path Tools</h3>
+                <button class="action-btn secondary" onclick="openAddCustomPathToolDialog()">➕ Add Custom Path Tool</button>
+                
+                <div id="addCustomPathToolDialog" style="display: none; margin-top: 15px; padding: 15px; border: 2px solid #3498db; border-radius: 4px; background: #ecf0f1;">
+                    <h4 style="margin-bottom: 10px; font-size: 13px;">New Custom Path Tool</h4>
+                    <label>
+                        Tool Name:
+                        <input type="text" id="customPathToolName" placeholder="e.g. Trail, Pipeline, Ferry">
+                    </label>
+                    <label>
+                        Path Thickness (px):
+                        <input type="number" id="customPathThickness" placeholder="e.g. 4" min="1" max="20" value="4">
+                    </label>
+                    <label>
+                        Path Color:
+                        <input type="color" id="customPathColor" value="#8e44ad">
+                    </label>
+                    <label>
+                        Path Style:
+                        <select id="customPathStyle">
+                            <option value="solid">Solid</option>
+                            <option value="dashed">Dashed</option>
+                            <option value="dotted">Dotted</option>
+                        </select>
+                    </label>
+                    <div style="margin-top: 10px;">
+                        <button class="action-btn secondary" onclick="addCustomPathTool()">✓ Add Tool</button>
+                        <button class="action-btn" onclick="closeAddCustomPathToolDialog()">Cancel</button>
+                    </div>
+                </div>
             </div>
 
             <div class="tool-section">
@@ -531,8 +565,12 @@
                 waterBodies: [],
                 borders: [],
                 cities: [],
-                customPoints: []
+                customPoints: [],
+                customPaths: []
             };
+            
+            // Custom path tool definitions
+            let customPathTools = [];
             let history = [];
             let nextId = 1;
             
@@ -633,7 +671,8 @@
                         ...mapData.roads,
                         ...mapData.rivers,
                         ...mapData.waterBodies,
-                        ...mapData.borders
+                        ...mapData.borders,
+                        ...(mapData.customPaths || [])
                     ];
                     
                     for (const path of allPaths) {
@@ -733,7 +772,8 @@
                         ...mapData.roads,
                         ...mapData.rivers,
                         ...mapData.waterBodies,
-                        ...mapData.borders
+                        ...mapData.borders,
+                        ...(mapData.customPaths || [])
                     ];
                     
                     for (const path of allPaths) {
@@ -800,7 +840,8 @@
                         ...mapData.roads,
                         ...mapData.rivers,
                         ...mapData.waterBodies,
-                        ...mapData.borders
+                        ...mapData.borders,
+                        ...(mapData.customPaths || [])
                     ];
                     
                     for (const path of allPaths) {
@@ -929,7 +970,8 @@
                         ...mapData.roads,
                         ...mapData.rivers,
                         ...mapData.waterBodies,
-                        ...mapData.borders
+                        ...mapData.borders,
+                        ...(mapData.customPaths || [])
                     ];
                     
                     for (const path of allPaths) {
@@ -1312,7 +1354,12 @@
                     case 'river': return 'rivers';
                     case 'water': return 'waterBodies';
                     case 'border': return 'borders';
-                    default: return 'highways';
+                    default:
+                        // Check if it's a custom path tool
+                        if (type && type.startsWith('custom-path-')) {
+                            return 'customPaths';
+                        }
+                        return 'highways';
                 }
             }
             
@@ -1351,7 +1398,17 @@
                     'custom-point': 'Custom Point'
                 };
                 
-                document.getElementById('currentToolDisplay').textContent = toolNames[tool];
+                let toolDisplayName = toolNames[tool];
+                
+                // Check if it's a custom path tool
+                if (!toolDisplayName && tool && tool.startsWith('custom-path-')) {
+                    const customTool = getCustomPathToolById(tool);
+                    if (customTool) {
+                        toolDisplayName = customTool.name;
+                    }
+                }
+                
+                document.getElementById('currentToolDisplay').textContent = toolDisplayName || tool;
     
                 updateCursor();
                 updateDrawingStatus('Ready');
@@ -1429,6 +1486,77 @@
             
                 saveToHistory();
                 redrawCanvas();
+            }
+
+            // Custom Path Tool Management
+            function openAddCustomPathToolDialog() {
+                document.getElementById('addCustomPathToolDialog').style.display = 'block';
+            }
+            
+            function closeAddCustomPathToolDialog() {
+                document.getElementById('addCustomPathToolDialog').style.display = 'none';
+                document.getElementById('customPathToolName').value = '';
+                document.getElementById('customPathThickness').value = '4';
+                document.getElementById('customPathColor').value = '#8e44ad';
+                document.getElementById('customPathStyle').value = 'solid';
+            }
+            
+            function addCustomPathTool() {
+                const name = document.getElementById('customPathToolName').value.trim();
+                const thickness = parseInt(document.getElementById('customPathThickness').value);
+                const color = document.getElementById('customPathColor').value;
+                const style = document.getElementById('customPathStyle').value;
+                
+                if (!name) {
+                    alert('Please enter a tool name');
+                    return;
+                }
+                
+                if (!thickness || thickness < 1 || thickness > 20) {
+                    alert('Please enter a valid thickness between 1 and 20');
+                    return;
+                }
+                
+                // Generate a unique ID for this tool
+                const toolId = 'custom-path-' + Date.now();
+                
+                // Add to custom tools array
+                customPathTools.push({
+                    id: toolId,
+                    name: name,
+                    thickness: thickness,
+                    color: color,
+                    style: style
+                });
+                
+                // Initialize the collection for this tool in mapData
+                if (!mapData.customPaths) {
+                    mapData.customPaths = [];
+                }
+                
+                // Create button for the tool
+                renderCustomPathToolButtons();
+                
+                closeAddCustomPathToolDialog();
+                saveToHistory();
+            }
+            
+            function renderCustomPathToolButtons() {
+                const container = document.getElementById('customPathToolsContainer');
+                container.innerHTML = '';
+                
+                customPathTools.forEach(tool => {
+                    const button = document.createElement('button');
+                    button.className = 'tool-btn';
+                    button.onclick = function() { setTool(tool.id, this); };
+                    button.textContent = tool.name;
+                    button.style.borderLeft = `6px solid ${tool.color}`;
+                    container.appendChild(button);
+                });
+            }
+            
+            function getCustomPathToolById(toolId) {
+                return customPathTools.find(tool => tool.id === toolId);
             }
 
 
@@ -1519,7 +1647,8 @@
                     ...mapData.highways.map(p => ({...p, collection: 'highways'})),
                     ...mapData.roads.map(p => ({...p, collection: 'roads'})),
                     ...mapData.rivers.map(p => ({...p, collection: 'rivers'})),
-                    ...mapData.waterBodies.map(p => ({...p, collection: 'waterBodies'}))
+                    ...mapData.waterBodies.map(p => ({...p, collection: 'waterBodies'})),
+                    ...(mapData.customPaths || []).map(p => ({...p, collection: 'customPaths'}))
                 ].reverse();
     
                 for (const path of allPaths) {
@@ -1723,7 +1852,12 @@
             }
     
             function exportJSON() {
-                const dataStr = JSON.stringify(mapData, null, 2);
+                // Create export data that includes both the map data and custom path tool definitions
+                const exportData = {
+                    ...mapData,
+                    customPathToolDefinitions: customPathTools
+                };
+                const dataStr = JSON.stringify(exportData, null, 2);
                 const blob = new Blob([dataStr], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement('a');
@@ -1822,6 +1956,12 @@
     
                 // Import the data
                 mapData = importedData;
+                
+                // If the imported data contains custom path tool definitions, restore them
+                if (importedData.customPathToolDefinitions) {
+                    customPathTools = importedData.customPathToolDefinitions;
+                    renderCustomPathToolButtons();
+                }
                 
                 // Clear any active editing states
                 isDrawingPath = false;
@@ -1924,6 +2064,13 @@
                 drawAllPaths(mapData.roads, 'road');
                 drawAllPaths(mapData.highways, 'highway');
                 drawAllPolygons(mapData.borders, true);
+                
+                // Draw custom paths
+                if (mapData.customPaths && mapData.customPaths.length > 0) {
+                    mapData.customPaths.forEach(path => {
+                        drawPath(path.points, path.type, false, false);
+                    });
+                }
     
                 mapData.cities.forEach(city => drawCity(city));
                 mapData.customPoints.forEach(point => drawCustomPoint(point));
@@ -2274,6 +2421,32 @@
                         ctx.lineCap = 'round';
                         ctx.lineJoin = 'round';
                         break;
+                    default:
+                        // Check if it's a custom path tool
+                        if (type && type.startsWith('custom-path-')) {
+                            const customTool = getCustomPathToolById(type);
+                            if (customTool) {
+                                ctx.strokeStyle = customTool.color;
+                                ctx.lineWidth = customTool.thickness;
+                                ctx.lineCap = 'round';
+                                ctx.lineJoin = 'round';
+                                
+                                // Apply path style
+                                switch(customTool.style) {
+                                    case 'dashed':
+                                        ctx.setLineDash([10, 5]);
+                                        break;
+                                    case 'dotted':
+                                        ctx.setLineDash([2, 3]);
+                                        break;
+                                    case 'solid':
+                                    default:
+                                        ctx.setLineDash([]);
+                                        break;
+                                }
+                            }
+                        }
+                        break;
                 }
             }
     
@@ -2522,6 +2695,30 @@
                 svg += addPathGroup(mapData.roads, 'roads', '#95a5a6', 4, offsetX, offsetY);
                 svg += addPathGroup(mapData.highways, 'highways', '#e74c3c', 8, offsetX, offsetY);
                 
+                // Add custom paths
+                if (mapData.customPaths && mapData.customPaths.length > 0) {
+                    // Group by tool type
+                    const pathsByTool = {};
+                    mapData.customPaths.forEach(path => {
+                        if (!pathsByTool[path.type]) {
+                            pathsByTool[path.type] = [];
+                        }
+                        pathsByTool[path.type].push(path);
+                    });
+                    
+                    // Export each group
+                    Object.keys(pathsByTool).forEach(toolType => {
+                        const customTool = getCustomPathToolById(toolType);
+                        if (customTool) {
+                            const dashArray = customTool.style === 'dashed' ? '10 5' : 
+                                            customTool.style === 'dotted' ? '2 3' : '';
+                            svg += addPathGroup(pathsByTool[toolType], customTool.name, 
+                                              customTool.color, customTool.thickness, 
+                                              offsetX, offsetY, dashArray);
+                        }
+                    });
+                }
+                
                 if (mapData.borders.length > 0) {
                     svg += '    <!-- Borders -->\n    <g id="borders">';
                     mapData.borders.forEach((polygon, index) => {
@@ -2576,7 +2773,7 @@
                 URL.revokeObjectURL(url);
             }
     
-            function addPathGroup(paths, type, color, width, offsetX, offsetY) {
+            function addPathGroup(paths, type, color, width, offsetX, offsetY, dashArray = '') {
                 if (paths.length === 0) return '';
                 
                 let group = `\n    <!-- ${type} -->\n    <g id="${type}">`;
@@ -2586,7 +2783,8 @@
                         `${i === 0 ? 'M' : 'L'} ${(p.x * baseScale + offsetX).toFixed(2)} ${(p.y * baseScale + offsetY).toFixed(2)}`
                     ).join(' ');
                     
-                    group += `\n        <path d="${pathD}" stroke="${color}" stroke-width="${width}" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    const dashAttr = dashArray ? ` stroke-dasharray="${dashArray}"` : '';
+                    group += `\n        <path d="${pathD}" stroke="${color}" stroke-width="${width}" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashAttr}>
                 <title>${type} #${index + 1} - ${length.toFixed(2)} km</title>
             </path>`;
                 });
@@ -2597,7 +2795,20 @@
             function calculateMapBounds() {
                 let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     
-                [...mapData.highways, ...mapData.roads, ...mapData.rivers, ...mapData.waterBodies, ...mapData.borders].forEach(item => {
+                const allPathCollections = [
+                    ...mapData.highways, 
+                    ...mapData.roads, 
+                    ...mapData.rivers, 
+                    ...mapData.waterBodies, 
+                    ...mapData.borders
+                ];
+                
+                // Include custom paths
+                if (mapData.customPaths && mapData.customPaths.length > 0) {
+                    allPathCollections.push(...mapData.customPaths);
+                }
+                
+                allPathCollections.forEach(item => {
                     item.points.forEach(p => {
                         minX = Math.min(minX, p.x);
                         minY = Math.min(minY, p.y);

@@ -312,29 +312,12 @@
             font-weight: bold;
             font-size: 14px;
         }
-
-        .edit-mode-banner {
-            background: #f39c12;
-            color: white;
-            padding: 10px 20px;
-            text-align: center;
-            font-weight: bold;
-            display: none;
-        }
-
-        .edit-mode-banner.active {
-            display: block;
-        }
     </style>
 </head>
 <body>
     <header>
         <h1>🗺️ Vector Map Designer - Infinite Canvas</h1>
     </header>
-
-    <div class="edit-mode-banner" id="editModeBanner">
-        🔧 EDIT MODE: Drag vertices to move them. Click vertices to delete. Click segments to delete. Click between to add points.
-    </div>
 
     <div class="container">
         <div class="sidebar">
@@ -384,6 +367,7 @@
                             <option value="solid">Solid</option>
                             <option value="dashed">Dashed</option>
                             <option value="dotted">Dotted</option>
+                            <option value="double">Double</option>
                         </select>
                     </label>
                     <div style="margin-top: 10px;">
@@ -417,6 +401,7 @@
                             <option value="solid">Solid</option>
                             <option value="dashed">Dashed</option>
                             <option value="dotted">Dotted</option>
+                            <option value="double">Double</option>
                         </select>
                     </label>
                     <label>
@@ -467,7 +452,7 @@
                     <div id="areaDisplay" style="display: none;" class="area"><span id="selectedArea">0</span> km²</div>
                     <div>Points: <span id="selectedPoints">0</span></div>
                 </div>
-                <button class="action-btn warning" onclick="enterEditMode()">✏️ Edit Path</button>
+                <button class="action-btn warning" onclick="openEditPathModal(selectedPath)">✏️ Edit Path</button>
                 <button class="action-btn danger" onclick="deleteSelected()">🗑️ Delete Entire Path</button>
 
                 <button class="tool-btn" onclick="setTool('custom-point', this)" style="background: #ecf0f1; color: #2c3e50;">📍 Custom Point</button>
@@ -484,18 +469,6 @@
                     <input type="text" id="customURL" placeholder="https://example.com">
                 </label>
 
-            </div>
-
-            <div class="tool-section" id="editModeControls" style="display: none;">
-                <h3>Edit Mode</h3>
-                <div class="info-box">
-                    <strong>Drag vertex:</strong> Move it.<br>
-                    <strong>Click endpoint:</strong> Extend path.<br>
-                    <strong>Click middle vertex:</strong> Delete it.<br>
-                    <strong>Click segment:</strong> Delete it.<br>
-                    <strong>Click between:</strong> Add point.
-                </div>
-                <button class="action-btn secondary" onclick="exitEditMode()">✓ Finish Editing</button>
             </div>
 
             <div class="tool-section">
@@ -592,6 +565,7 @@
             let editingPoint = null;
             let shiftKeyDown = false;
             let draggingPoint = null;
+            let didDragPoint = false;
             
         // Mouse position tracking for add-vertex preview
             let lastMouseX = 0;
@@ -711,6 +685,7 @@
                     const point = findCustomPointAtPosition(worldPos);
                     if (point) {
                         draggingPoint = point;
+                        didDragPoint = false;
                         canvas.style.cursor = 'grabbing';
                         e.preventDefault();
                         return;
@@ -720,6 +695,7 @@
                     const label = findTextLabelAtPosition(worldPos);
                     if (label) {
                         draggingPoint = label;
+                        didDragPoint = false;
                         canvas.style.cursor = 'grabbing';
                         e.preventDefault();
                         return;
@@ -800,6 +776,7 @@
                 const worldPos = screenToWorld(e.clientX, e.clientY);
                 draggingPoint.x = worldPos.x;
                 draggingPoint.y = worldPos.y;
+                didDragPoint = true;
                 redrawCanvas();
                 return;
             }
@@ -1013,6 +990,12 @@
         function handleClick(e) {
                 if (spacebarDown || isPanning || e.button !== 0) return;
                 if (draggingVertex) return; // Don't process clicks while dragging
+                
+                // Don't process click if we just dragged a point/label
+                if (didDragPoint) {
+                    didDragPoint = false;
+                    return;
+                }
                 
                 const worldPos = screenToWorld(e.clientX, e.clientY);
 
@@ -1311,22 +1294,16 @@
                 redrawCanvas();
             }
             
-            // Edit mode functions
+            // Edit mode functions (deprecated - now using modal dialogs)
             function enterEditMode() {
-                if (!selectedPath) return;
-                
-                isEditMode = true;
-                editingPath = selectedPath;
-                extendingFromVertex = null;
-                document.getElementById('editModeBanner').classList.add('active');
-                document.getElementById('editModeControls').style.display = 'block';
-                document.getElementById('selectedPathInfo').style.display = 'none';
-                updateDrawingStatus('Edit mode');
-                updateCursor();
-                redrawCanvas();
+                // This function is deprecated. Path editing now uses modal dialogs.
+                // Keeping stub for backward compatibility.
+                return;
             }
             
             function exitEditMode() {
+                // This function is deprecated. Path editing now uses modal dialogs.
+                // Keeping stub for backward compatibility.
                 isEditMode = false;
                 editingPath = null;
                 hoveredVertex = null;
@@ -1335,8 +1312,6 @@
                 draggingVertex = null;
                 dragVertexIndex = -1;
                 dragPath = null;
-                document.getElementById('editModeBanner').classList.remove('active');
-                document.getElementById('editModeControls').style.display = 'none';
                 updateDrawingStatus('Ready');
                 updateCursor();
                 saveToHistory();
@@ -2145,8 +2120,6 @@
                     dragVertexIndex = -1;
                     dragPath = null;
                     document.getElementById('selectedPathInfo').style.display = 'none';
-                    document.getElementById('editModeControls').style.display = 'none';
-                    document.getElementById('editModeBanner').classList.remove('active');
                     saveToHistory();
                     redrawCanvas();
                 }
@@ -2171,8 +2144,6 @@
                     dragVertexIndex = -1;
                     dragPath = null;
                     document.getElementById('selectedPathInfo').style.display = 'none';
-                    document.getElementById('editModeControls').style.display = 'none';
-                    document.getElementById('editModeBanner').classList.remove('active');
                     redrawCanvas();
                 }
             }
@@ -2329,8 +2300,6 @@
                 
                 // Hide any open panels
                 document.getElementById('selectedPathInfo').style.display = 'none';
-                document.getElementById('editModeControls').style.display = 'none';
-                document.getElementById('editModeBanner').classList.remove('active');
                 
                 // Save to history and redraw
                 history = [];
@@ -2619,6 +2588,10 @@
                             case 'dotted':
                                 ctx.setLineDash([2, 3]);
                                 break;
+                            case 'double':
+                                // For double lines, we'll stroke twice with different widths
+                                ctx.setLineDash([]);
+                                break;
                             case 'solid':
                             default:
                                 ctx.setLineDash([]);
@@ -2641,6 +2614,30 @@
                     ctx.shadowBlur = 10;
                 }
                 ctx.stroke();
+                
+                // Draw double line effect if needed (for custom polygons)
+                if (type && type.startsWith('custom-polygon-')) {
+                    const customTool = getCustomPolygonToolById(type);
+                    if (customTool && customTool.style === 'double') {
+                        // Draw inner line with smaller width and white/background color
+                        ctx.save();
+                        ctx.strokeStyle = '#f8f9fa'; // Match background color
+                        ctx.lineWidth = Math.max(1, (isSelected ? customTool.thickness + 2 : customTool.thickness) * 0.4);
+                        ctx.setLineDash([]);
+                        ctx.shadowColor = 'transparent';
+                        ctx.shadowBlur = 0;
+                        ctx.beginPath();
+                        const firstPoint = worldToScreen(points[0].x, points[0].y);
+                        ctx.moveTo(firstPoint.x, firstPoint.y);
+                        for (let i = 1; i < points.length; i++) {
+                            const point = worldToScreen(points[i].x, points[i].y);
+                            ctx.lineTo(point.x, point.y);
+                        }
+                        ctx.closePath();
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                }
     
                 points.forEach((point, index) => {
                     const screenPoint = worldToScreen(point.x, point.y);
@@ -2700,6 +2697,29 @@
                         ctx.lineTo(point.x, point.y);
                     }
                     ctx.stroke();
+                    
+                    // Draw double line effect if needed (for custom paths)
+                    if (type && type.startsWith('custom-path-')) {
+                        const customTool = getCustomPathToolById(type);
+                        if (customTool && customTool.style === 'double') {
+                            // Draw inner line with smaller width and white/background color
+                            ctx.save();
+                            ctx.strokeStyle = '#f8f9fa'; // Match background color
+                            const baseWidth = isSelected ? customTool.thickness + 4 : customTool.thickness;
+                            ctx.lineWidth = Math.max(1, baseWidth * 0.4);
+                            ctx.setLineDash([]);
+                            ctx.shadowColor = 'transparent';
+                            ctx.shadowBlur = 0;
+                            ctx.beginPath();
+                            ctx.moveTo(firstPoint.x, firstPoint.y);
+                            for (let i = 1; i < points.length; i++) {
+                                const point = worldToScreen(points[i].x, points[i].y);
+                                ctx.lineTo(point.x, point.y);
+                            }
+                            ctx.stroke();
+                            ctx.restore();
+                        }
+                    }
                 }
     
                 ctx.globalAlpha = 1;
@@ -2834,6 +2854,10 @@
                                         break;
                                     case 'dotted':
                                         ctx.setLineDash([2, 3]);
+                                        break;
+                                    case 'double':
+                                        // For double lines, we'll stroke twice
+                                        ctx.setLineDash([]);
                                         break;
                                     case 'solid':
                                     default:
@@ -3138,10 +3162,11 @@
                         const customTool = getCustomPathToolById(toolType);
                         if (customTool) {
                             const dashArray = customTool.style === 'dashed' ? '10 5' : 
-                                            customTool.style === 'dotted' ? '2 3' : '';
+                                            customTool.style === 'dotted' ? '2 3' : 
+                                            customTool.style === 'double' ? '' : ''; // Double exported as solid
                             svg += addPathGroup(pathsByTool[toolType], customTool.name, 
                                               customTool.color, customTool.thickness, 
-                                              offsetX, offsetY, dashArray);
+                                              offsetX, offsetY, dashArray, customTool.style === 'double');
                         }
                     });
                 }
@@ -3169,7 +3194,8 @@
                                 const area = calculatePolygonArea(polygon.points);
                                 
                                 const dashArray = customTool.style === 'dashed' ? '10 5' : 
-                                                customTool.style === 'dotted' ? '2 3' : '';
+                                                customTool.style === 'dotted' ? '2 3' : 
+                                                customTool.style === 'double' ? '' : ''; // Double exported as solid
                                 const dashAttr = dashArray ? ` stroke-dasharray="${dashArray}"` : '';
                                 
                                 const rgb = parseInt(customTool.fillColor.slice(1), 16);
@@ -3249,7 +3275,7 @@
                 URL.revokeObjectURL(url);
             }
     
-            function addPathGroup(paths, type, color, width, offsetX, offsetY, dashArray = '') {
+            function addPathGroup(paths, type, color, width, offsetX, offsetY, dashArray = '', isDouble = false) {
                 if (paths.length === 0) return '';
                 
                 let group = `\n    <!-- ${type} -->\n    <g id="${type}">`;
@@ -3260,9 +3286,19 @@
                     ).join(' ');
                     
                     const dashAttr = dashArray ? ` stroke-dasharray="${dashArray}"` : '';
-                    group += `\n        <path d="${pathD}" stroke="${color}" stroke-width="${width}" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashAttr}>
+                    
+                    if (isDouble) {
+                        // For double lines, export as two strokes (simplified version)
+                        group += `\n        <path d="${pathD}" stroke="${color}" stroke-width="${width}" fill="none" stroke-linecap="round" stroke-linejoin="round">
                 <title>${type} #${index + 1} - ${length.toFixed(2)} km</title>
             </path>`;
+                        group += `\n        <path d="${pathD}" stroke="#f8f9fa" stroke-width="${Math.max(1, width * 0.4)}" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            </path>`;
+                    } else {
+                        group += `\n        <path d="${pathD}" stroke="${color}" stroke-width="${width}" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashAttr}>
+                <title>${type} #${index + 1} - ${length.toFixed(2)} km</title>
+            </path>`;
+                    }
                 });
                 group += '\n    </g>';
                 return group;

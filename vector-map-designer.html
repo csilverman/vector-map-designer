@@ -1002,6 +1002,13 @@
                         openEditPointModal(point);
                         return;
                     }
+                    
+                    // Check if control-clicking a path or polygon
+                    const hoverInfo = findPathAndSegmentAtPoint(worldPos);
+                    if (hoverInfo) {
+                        openEditPathModal(hoverInfo.path);
+                        return;
+                    }
                 }
 
             // Check if clicking a custom point with URL (normal click)
@@ -1764,6 +1771,57 @@
                         mapData.customPoints.splice(index, 1);
                     }
                     closeEditModal();
+                    saveToHistory();
+                    redrawCanvas();
+                }
+            }
+            
+            // Path/Polygon editing modal functions
+            let editingPathObject = null;
+            
+            function openEditPathModal(path) {
+                editingPathObject = path;
+                document.getElementById('editPathLabel').value = path.label || '';
+                document.getElementById('editPathURL').value = path.url || '';
+                document.getElementById('editPathModal').style.display = 'flex';
+            }
+            
+            function closeEditPathModal() {
+                editingPathObject = null;
+                document.getElementById('editPathModal').style.display = 'none';
+            }
+            
+            function savePathEdit() {
+                if (!editingPathObject) return;
+                
+                editingPathObject.label = document.getElementById('editPathLabel').value.trim();
+                editingPathObject.url = document.getElementById('editPathURL').value.trim();
+                
+                closeEditPathModal();
+                saveToHistory();
+                redrawCanvas();
+            }
+            
+            function deletePathFromModal() {
+                if (!editingPathObject) return;
+                
+                if (confirm('Delete this path/polygon?')) {
+                    // Find which collection this path belongs to
+                    const collections = [
+                        'highways', 'roads', 'rivers', 'waterBodies', 
+                        'borders', 'customPaths', 'customPolygons'
+                    ];
+                    
+                    for (const collectionName of collections) {
+                        const collection = mapData[collectionName];
+                        const index = collection.findIndex(p => p.id === editingPathObject.id);
+                        if (index !== -1) {
+                            collection.splice(index, 1);
+                            break;
+                        }
+                    }
+                    
+                    closeEditPathModal();
                     saveToHistory();
                     redrawCanvas();
                 }
@@ -3128,6 +3186,26 @@
                     <button onclick="savePointEdit()" style="flex: 1; padding: 10px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Save</button>
                     <button onclick="deletePointFromModal()" style="flex: 1; padding: 10px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Delete</button>
                     <button onclick="closeEditModal()" style="flex: 1; padding: 10px; background: #95a5a6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Cancel</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Edit Path/Polygon Modal -->
+        <div id="editPathModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+            <div style="background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); max-width: 400px; width: 90%;">
+                <h3 style="margin-top: 0; color: #2c3e50;">Edit Path/Polygon</h3>
+                <label style="display: block; margin-bottom: 15px;">
+                    Label:
+                    <input type="text" id="editPathLabel" style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #bdc3c7; border-radius: 4px;">
+                </label>
+                <label style="display: block; margin-bottom: 20px;">
+                    URL:
+                    <input type="text" id="editPathURL" style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #bdc3c7; border-radius: 4px;">
+                </label>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="savePathEdit()" style="flex: 1; padding: 10px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Save</button>
+                    <button onclick="deletePathFromModal()" style="flex: 1; padding: 10px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Delete</button>
+                    <button onclick="closeEditPathModal()" style="flex: 1; padding: 10px; background: #95a5a6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Cancel</button>
                 </div>
             </div>
         </div>

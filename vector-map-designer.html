@@ -443,33 +443,7 @@
                 </label>
             </div>
 
-            <div class="tool-section" id="selectedPathInfo" style="display: none;">
-                <h3>Selected Path</h3>
-                <div class="selected-info">
-                    <div>Type: <span id="selectedType">-</span></div>
-                    <div id="selectedLabelDisplay" style="display: none;">Label: <span id="selectedLabel">-</span></div>
-                    <div class="distance"><span id="selectedDistance">0</span> km</div>
-                    <div id="areaDisplay" style="display: none;" class="area"><span id="selectedArea">0</span> km²</div>
-                    <div>Points: <span id="selectedPoints">0</span></div>
-                </div>
-                <button class="action-btn warning" onclick="openEditPathModal(selectedPath)">✏️ Edit Path</button>
-                <button class="action-btn danger" onclick="deleteSelected()">🗑️ Delete Entire Path</button>
 
-                <button class="tool-btn" onclick="setTool('custom-point', this)" style="background: #ecf0f1; color: #2c3e50;">📍 Custom Point</button>
-                <label>
-                    Font Awesome Icon:
-                    <input type="text" id="customIcon" placeholder="e.g. tree, hospital, star, mountain, landmark">
-                </label>
-                <label>
-                    Point Label (optional):
-                    <input type="text" id="customLabel" placeholder="Enter label">
-                </label>
-                <label>
-                    Link URL (optional):
-                    <input type="text" id="customURL" placeholder="https://example.com">
-                </label>
-
-            </div>
 
             <div class="tool-section">
                 <h3>Actions</h3>
@@ -651,8 +625,6 @@
                     } else {
                         cancelCurrentPath();
                     }
-                } else if (e.key === 'Delete' && selectedPath && !isEditMode && !isTyping) {
-                    deleteSelected();
                 }
             }
             
@@ -1169,11 +1141,10 @@
                     return;
                 }
                 
+                // Check if right-clicking a path or polygon
                 const hoverInfo = findPathAndSegmentAtPoint(worldPos);
                 if (hoverInfo) {
-                    selectedPath = hoverInfo.path;
-                    showPathInfo(hoverInfo.path);
-                    redrawCanvas();
+                    openEditPathModal(hoverInfo.path);
                 }
             }
                         
@@ -1865,6 +1836,11 @@
                         }
                     }
                     
+                    // Clear selectedPath if it was the deleted path
+                    if (selectedPath && selectedPath.id === editingPathObject.id) {
+                        selectedPath = null;
+                    }
+                    
                     closeEditPathModal();
                     saveToHistory();
                     redrawCanvas();
@@ -1993,54 +1969,7 @@
                 return calculateSegmentLength(point, { x: projX, y: projY });
             }
     
-            function showPathInfo(path) {
-                const isPolygon = isPolygonType(path.type);
-                
-                if (isPolygon) {
-                    const area = calculatePolygonArea(path.points);
-                    const perimeter = calculatePathLength([...path.points, path.points[0]]);
-                    document.getElementById('selectedDistance').textContent = perimeter.toFixed(2) + ' (perimeter)';
-                    document.getElementById('selectedArea').textContent = area.toFixed(2);
-                    document.getElementById('areaDisplay').style.display = 'block';
-                } else {
-                    const length = calculatePathLength(path.points);
-                    document.getElementById('selectedDistance').textContent = length.toFixed(2);
-                    document.getElementById('areaDisplay').style.display = 'none';
-                }
-                
-                // Display label if it exists
-                if (path.label) {
-                    document.getElementById('selectedLabelDisplay').style.display = 'block';
-                    document.getElementById('selectedLabel').textContent = path.label;
-                } else {
-                    document.getElementById('selectedLabelDisplay').style.display = 'none';
-                }
-                
-                document.getElementById('selectedType').textContent = path.type.charAt(0).toUpperCase() + path.type.slice(1);
-                document.getElementById('selectedPoints').textContent = path.points.length;
-                document.getElementById('selectedPathInfo').style.display = 'block';
-            }
-    
-            function deleteSelected() {
-                if (!selectedPath) return;
-    
-                if (!confirm('Delete this entire path?')) return;
-    
-                const collections = ['highways', 'roads', 'rivers', 'waterBodies', 'borders'];
-                for (const collection of collections) {
-                    const index = mapData[collection].findIndex(p => p.id === selectedPath.id);
-                    if (index !== -1) {
-                        mapData[collection].splice(index, 1);
-                        break;
-                    }
-                }
-    
-                selectedPath = null;
-                document.getElementById('selectedPathInfo').style.display = 'none';
-                saveToHistory();
-                redrawCanvas();
-            }
-    
+
             function drawPreviewPoint(pos) {
                 if (currentPathPoints.length === 0) return;
     
@@ -2119,7 +2048,6 @@
                     draggingVertex = null;
                     dragVertexIndex = -1;
                     dragPath = null;
-                    document.getElementById('selectedPathInfo').style.display = 'none';
                     saveToHistory();
                     redrawCanvas();
                 }
@@ -2143,7 +2071,6 @@
                     draggingVertex = null;
                     dragVertexIndex = -1;
                     dragPath = null;
-                    document.getElementById('selectedPathInfo').style.display = 'none';
                     redrawCanvas();
                 }
             }
@@ -2297,9 +2224,6 @@
                 hoveredVertex = null;
                 hoveredPath = null;
                 hoveredSegment = null;
-                
-                // Hide any open panels
-                document.getElementById('selectedPathInfo').style.display = 'none';
                 
                 // Save to history and redraw
                 history = [];

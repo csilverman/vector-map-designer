@@ -1535,7 +1535,9 @@
                 if (isPolygonType(currentTool) && currentPathPoints.length >= 3) {
                     const customTool = getCustomPolygonToolById(currentTool);
                     if (customTool && customTool.isContour) {
-                        const contours = generateContourLines(currentPathPoints, customTool.contourSpacing);
+                        // Make a copy of currentPathPoints to avoid any potential reference issues
+                        const outerPoints = [...currentPathPoints];
+                        const contours = generateContourLines(outerPoints, customTool.contourSpacing);
                         
                         // Add each contour as a separate polygon
                         contours.forEach(contourPoints => {
@@ -1877,7 +1879,54 @@
                     }
                 }
                 
-                return shrunkPoints;
+                // Simplify the shrunk polygon to reduce distortion
+                // Remove vertices that don't contribute much to the shape
+                return simplifyPolygon(shrunkPoints, distance * 0.2);
+            }
+            
+            // Simplify a polygon by removing vertices that are nearly collinear
+            // Uses perpendicular distance from the line between adjacent vertices
+            function simplifyPolygon(points, tolerance) {
+                if (points.length <= 3) return points;
+                
+                const simplified = [];
+                
+                for (let i = 0; i < points.length; i++) {
+                    const prev = points[(i - 1 + points.length) % points.length];
+                    const curr = points[i];
+                    const next = points[(i + 1) % points.length];
+                    
+                    // Calculate perpendicular distance from curr to line between prev and next
+                    const dist = perpendicularDistance(curr, prev, next);
+                    
+                    // Keep the vertex if it's significant or if we're at risk of having too few vertices
+                    if (dist > tolerance || simplified.length < 3) {
+                        simplified.push(curr);
+                    }
+                }
+                
+                // Ensure we have at least 3 vertices
+                return simplified.length >= 3 ? simplified : points;
+            }
+            
+            // Calculate perpendicular distance from a point to a line segment
+            function perpendicularDistance(point, lineStart, lineEnd) {
+                const dx = lineEnd.x - lineStart.x;
+                const dy = lineEnd.y - lineStart.y;
+                const lenSquared = dx * dx + dy * dy;
+                
+                if (lenSquared === 0) {
+                    // Line segment is a point
+                    const distX = point.x - lineStart.x;
+                    const distY = point.y - lineStart.y;
+                    return Math.sqrt(distX * distX + distY * distY);
+                }
+                
+                // Calculate the perpendicular distance
+                const numerator = Math.abs(dy * point.x - dx * point.y + lineEnd.x * lineStart.y - lineEnd.y * lineStart.x);
+                const denominator = Math.sqrt(lenSquared);
+                
+                return numerator / denominator;
             }
             
             // Find intersection of two line segments (extended to lines)
@@ -2671,7 +2720,7 @@
     
                 if (isDrawingPath && currentPathPoints.length > 0) {
                     if (isPolygonType(currentTool)) {
-                        drawPolygon(currentPathPoints, false, false, false, currentTool);
+                        drawPolygon(currentPathPoints, false, false, false, currentTool, true);
                     } else {
                         drawPath(currentPathPoints, currentTool, false, true);
                     }
@@ -2812,7 +2861,7 @@
                 });
             }
     
-            function drawPolygon(points, isSelected = false, isBorder = false, isEditing = false, type = 'water') {
+            function drawPolygon(points, isSelected = false, isBorder = false, isEditing = false, type = 'water', isCurrent = false) {
                 if (points.length < 3) return;
     
                 ctx.save();
@@ -2904,27 +2953,31 @@
                     }
                 }
     
-                points.forEach((point, index) => {
-                    const screenPoint = worldToScreen(point.x, point.y);
-                    const isHovered = isEditing && hoveredVertex === index;
-                    const isEndpoint = index === 0 || index === points.length - 1;
-                    const vertexRadius = isEditing ? 8 : (isSelected ? 5 : 3);
-                    
-                    ctx.beginPath();
-                    ctx.arc(screenPoint.x, screenPoint.y, isHovered ? vertexRadius + 2 : vertexRadius, 0, Math.PI * 2);
-                    
-                    if (isHovered) {
-                        ctx.fillStyle = '#e74c3c';
-                    } else if (isEditing && isEndpoint) {
-                        ctx.fillStyle = '#2ecc71';
-                    } else if (isSelected) {
-                        ctx.fillStyle = '#f39c12';
-                    } else {
-                        ctx.fillStyle = '#2c3e50';
-                    }
-                    
-                    ctx.fill();
-                });
+                // Only draw vertices if the polygon is selected, being edited, or being drawn
+                // This hides vertices for regular polygons (like topographic contours) when not interacting with them
+                if (isSelected || isEditing || isCurrent) {
+                    points.forEach((point, index) => {
+                        const screenPoint = worldToScreen(point.x, point.y);
+                        const isHovered = isEditing && hoveredVertex === index;
+                        const isEndpoint = index === 0 || index === points.length - 1;
+                        const vertexRadius = isEditing ? 8 : (isSelected ? 5 : 3);
+                        
+                        ctx.beginPath();
+                        ctx.arc(screenPoint.x, screenPoint.y, isHovered ? vertexRadius + 2 : vertexRadius, 0, Math.PI * 2);
+                        
+                        if (isHovered) {
+                            ctx.fillStyle = '#e74c3c';
+                        } else if (isEditing && isEndpoint) {
+                            ctx.fillStyle = '#2ecc71';
+                        } else if (isSelected) {
+                            ctx.fillStyle = '#f39c12';
+                        } else {
+                            ctx.fillStyle = '#2c3e50';
+                        }
+                        
+                        ctx.fill();
+                    });
+                }
     
                 if (isEditing && hoveredEditSegment) {
                     const seg = hoveredEditSegment;
@@ -2989,30 +3042,34 @@
     
                 ctx.globalAlpha = 1;
                 
-                points.forEach((point, index) => {
-                    const screenPoint = worldToScreen(point.x, point.y);
-                    const isHovered = isEditing && hoveredVertex === index;
-                    const isEndpoint = index === 0 || index === points.length - 1;
-                    const isExtending = extendingFromVertex && extendingFromVertex.vertexIndex === index;
-                    const vertexRadius = isEditing ? 8 : (isSelected ? 5 : 3);
-                    
-                    ctx.beginPath();
-                    ctx.arc(screenPoint.x, screenPoint.y, isHovered ? vertexRadius + 2 : vertexRadius, 0, Math.PI * 2);
-                    
-                    if (isExtending) {
-                        ctx.fillStyle = '#e74c3c';
-                    } else if (isHovered) {
-                        ctx.fillStyle = '#e74c3c';
-                    } else if (isEditing && isEndpoint) {
-                        ctx.fillStyle = '#2ecc71';
-                    } else if (isSelected) {
-                        ctx.fillStyle = '#f39c12';
-                    } else {
-                        ctx.fillStyle = '#2c3e50';
-                    }
-                    
-                    ctx.fill();
-                });
+                // Only draw vertices if the path is selected, being edited, or being drawn
+                // This hides vertices for regular paths (like mountain lines) when not interacting with them
+                if (isSelected || isEditing || isCurrent) {
+                    points.forEach((point, index) => {
+                        const screenPoint = worldToScreen(point.x, point.y);
+                        const isHovered = isEditing && hoveredVertex === index;
+                        const isEndpoint = index === 0 || index === points.length - 1;
+                        const isExtending = extendingFromVertex && extendingFromVertex.vertexIndex === index;
+                        const vertexRadius = isEditing ? 8 : (isSelected ? 5 : 3);
+                        
+                        ctx.beginPath();
+                        ctx.arc(screenPoint.x, screenPoint.y, isHovered ? vertexRadius + 2 : vertexRadius, 0, Math.PI * 2);
+                        
+                        if (isExtending) {
+                            ctx.fillStyle = '#e74c3c';
+                        } else if (isHovered) {
+                            ctx.fillStyle = '#e74c3c';
+                        } else if (isEditing && isEndpoint) {
+                            ctx.fillStyle = '#2ecc71';
+                        } else if (isSelected) {
+                            ctx.fillStyle = '#f39c12';
+                        } else {
+                            ctx.fillStyle = '#2c3e50';
+                        }
+                        
+                        ctx.fill();
+                    });
+                }
     
                 if (isEditing && hoveredEditSegment) {
                     const seg = hoveredEditSegment;

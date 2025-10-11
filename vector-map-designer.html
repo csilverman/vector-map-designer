@@ -412,6 +412,14 @@
                         Fill Opacity (0-1):
                         <input type="number" id="customPolygonFillOpacity" placeholder="e.g. 0.4" min="0" max="1" step="0.1" value="0.4">
                     </label>
+                    <label style="display: flex; align-items: center;">
+                        <input type="checkbox" id="customPolygonContour" style="width: auto; margin-right: 8px;">
+                        Topographic Contours (generates concentric inner lines)
+                    </label>
+                    <label id="contourSpacingLabel" style="display: none;">
+                        Contour Spacing (km):
+                        <input type="number" id="customPolygonContourSpacing" placeholder="e.g. 0.5" min="0.1" max="5" step="0.1" value="0.5">
+                    </label>
                     <div style="margin-top: 10px;">
                         <button class="action-btn secondary" onclick="addCustomPolygonTool()">✓ Add Tool</button>
                         <button class="action-btn" onclick="closeAddCustomPolygonToolDialog()">Cancel</button>
@@ -601,6 +609,12 @@
             
             // Preload common Font Awesome icons
             preloadCommonIcons();
+            
+            // Add event listener for contour checkbox
+            document.getElementById('customPolygonContour').addEventListener('change', function() {
+                const spacingLabel = document.getElementById('contourSpacingLabel');
+                spacingLabel.style.display = this.checked ? 'block' : 'none';
+            });
                         
             // Keyboard handlers
             document.addEventListener('keydown', handleKeyDown);
@@ -1167,7 +1181,9 @@
             function handleWheel(e) {
                 e.preventDefault();
                 
-                const zoomChange = e.deltaY < 0 ? 0.01 : -0.01;
+                // Increase zoom speed if Alt/Option key is held down
+                const zoomMultiplier = e.altKey ? 5 : 1;
+                const zoomChange = (e.deltaY < 0 ? 0.01 : -0.01) * zoomMultiplier;
                 const newZoom = Math.max(0.01, Math.min(50, zoomLevel + zoomChange));
                 
                 const offsetX = e.clientX - container.getBoundingClientRect().left;
@@ -1509,6 +1525,26 @@
     
                 const collection = getCollectionForType(currentTool);
                 mapData[collection].push(pathData);
+                
+                // Generate contour lines if this is a contour polygon tool
+                if (isPolygonType(currentTool) && currentPathPoints.length >= 3) {
+                    const customTool = getCustomPolygonToolById(currentTool);
+                    if (customTool && customTool.isContour) {
+                        const contours = generateContourLines(currentPathPoints, customTool.contourSpacing);
+                        
+                        // Add each contour as a separate polygon
+                        contours.forEach(contourPoints => {
+                            const contourData = {
+                                id: nextId++,
+                                points: contourPoints,
+                                type: currentTool,
+                                label: null,
+                                layer: 1
+                            };
+                            mapData[collection].push(contourData);
+                        });
+                    }
+                }
     
                 isDrawingPath = false;
                 currentPathPoints = [];
@@ -1670,6 +1706,9 @@
                 document.getElementById('customPolygonStyle').value = 'solid';
                 document.getElementById('customPolygonFillColor').value = '#3498db';
                 document.getElementById('customPolygonFillOpacity').value = '0.4';
+                document.getElementById('customPolygonContour').checked = false;
+                document.getElementById('customPolygonContourSpacing').value = '0.5';
+                document.getElementById('contourSpacingLabel').style.display = 'none';
             }
             
             function addCustomPolygonTool() {
@@ -1679,6 +1718,8 @@
                 const style = document.getElementById('customPolygonStyle').value;
                 const fillColor = document.getElementById('customPolygonFillColor').value;
                 const fillOpacity = parseFloat(document.getElementById('customPolygonFillOpacity').value);
+                const isContour = document.getElementById('customPolygonContour').checked;
+                const contourSpacing = parseFloat(document.getElementById('customPolygonContourSpacing').value) || 0.5;
                 
                 if (!name) {
                     alert('Please enter a tool name');
@@ -1695,6 +1736,11 @@
                     return;
                 }
                 
+                if (isContour && (isNaN(contourSpacing) || contourSpacing <= 0)) {
+                    alert('Please enter a valid contour spacing greater than 0');
+                    return;
+                }
+                
                 // Generate a unique ID for this tool
                 const toolId = 'custom-polygon-' + Date.now();
                 
@@ -1706,7 +1752,9 @@
                     color: color,
                     style: style,
                     fillColor: fillColor,
-                    fillOpacity: fillOpacity
+                    fillOpacity: fillOpacity,
+                    isContour: isContour,
+                    contourSpacing: contourSpacing
                 });
                 
                 // Initialize the collection for this tool in mapData
@@ -1744,6 +1792,98 @@
                 return type === 'water' || type === 'border' || (type && type.startsWith('custom-polygon-'));
             }
 
+            // Generate concentric contour lines inside a polygon
+            function generateContourLines(outerPoints, spacing = 0.5) {
+                const contours = [];
+                let currentPoints = outerPoints;
+                
+                // Keep generating inner contours until we can't shrink anymore
+                while (currentPoints.length >= 3) {
+                    const innerPoints = shrinkPolygon(currentPoints, spacing);
+                    
+                    // Stop if the polygon got too small or invalid
+                    if (innerPoints.length < 3 || calculatePolygonArea(innerPoints) < spacing * spacing * 0.5) {
+                        break;
+                    }
+                    
+                    contours.push(innerPoints);
+                    currentPoints = innerPoints;
+                }
+                
+                return contours;
+            }
+            
+            // Shrink a polygon inward by a given distance
+            function shrinkPolygon(points, distance) {
+                if (points.length < 3) return [];
+                
+                // Calculate inward-facing normals for each edge
+                const offsetSegments = [];
+                
+                for (let i = 0; i < points.length; i++) {
+                    const p1 = points[i];
+                    const p2 = points[(i + 1) % points.length];
+                    
+                    // Edge vector
+                    const dx = p2.x - p1.x;
+                    const dy = p2.y - p1.y;
+                    const len = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (len === 0) continue;
+                    
+                    // Perpendicular inward normal (rotate 90 degrees clockwise for inward)
+                    const nx = dy / len;
+                    const ny = -dx / len;
+                    
+                    // Offset both points of the edge
+                    offsetSegments.push({
+                        p1: { x: p1.x + nx * distance, y: p1.y + ny * distance },
+                        p2: { x: p2.x + nx * distance, y: p2.y + ny * distance }
+                    });
+                }
+                
+                // Find intersections of adjacent offset segments
+                const shrunkPoints = [];
+                
+                for (let i = 0; i < offsetSegments.length; i++) {
+                    const seg1 = offsetSegments[i];
+                    const seg2 = offsetSegments[(i + 1) % offsetSegments.length];
+                    
+                    // Find intersection point
+                    const intersection = findLineIntersection(
+                        seg1.p1, seg1.p2,
+                        seg2.p1, seg2.p2
+                    );
+                    
+                    if (intersection) {
+                        shrunkPoints.push(intersection);
+                    }
+                }
+                
+                return shrunkPoints;
+            }
+            
+            // Find intersection of two line segments (extended to lines)
+            function findLineIntersection(p1, p2, p3, p4) {
+                const x1 = p1.x, y1 = p1.y;
+                const x2 = p2.x, y2 = p2.y;
+                const x3 = p3.x, y3 = p3.y;
+                const x4 = p4.x, y4 = p4.y;
+                
+                const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+                
+                if (Math.abs(denom) < 1e-10) {
+                    // Lines are parallel
+                    return null;
+                }
+                
+                const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+                
+                return {
+                    x: x1 + t * (x2 - x1),
+                    y: y1 + t * (y2 - y1)
+                };
+            }
 
         function findCustomPointAtPosition(pos, tolerance = 1.0) {
                 for (const point of mapData.customPoints) {

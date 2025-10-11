@@ -443,7 +443,13 @@
                 </label>
             </div>
 
-
+            <div class="tool-section">
+                <h3>Layers</h3>
+                <div id="layersList" style="margin-bottom: 10px;">
+                    <!-- Layers will be populated here -->
+                </div>
+                <button class="action-btn secondary" onclick="openAddLayerDialog()" style="font-size: 12px;">➕ Add Layer</button>
+            </div>
 
             <div class="tool-section">
                 <h3>Actions</h3>
@@ -563,7 +569,10 @@
                 customPoints: [],
                 customPaths: [],
                 customPolygons: [],
-                textLabels: []
+                textLabels: [],
+                layers: [
+                    { id: 1, name: 'Default Layer', visible: true }
+                ]
             };
             
             // Custom path tool definitions
@@ -582,6 +591,9 @@
         window.addEventListener('resize', resizeCanvas);
             resizeCanvas();
             saveToHistory();
+            
+            // Initialize layers UI
+            renderLayersList();
             
             // Preload common Font Awesome icons
             preloadCommonIcons();
@@ -1487,7 +1499,8 @@
                     id: nextId++,
                     points: [...currentPathPoints],
                     type: currentTool,
-                    label: label || null
+                    label: label || null,
+                    layer: 1 // Default layer
                 };
     
                 const collection = getCollectionForType(currentTool);
@@ -1538,7 +1551,8 @@
                     y: pos.y,
                     icon: iconClass,
                     label: label,
-                    url: url
+                    url: url,
+                    layer: 1 // Default layer
                 });
             
                 saveToHistory();
@@ -1560,7 +1574,8 @@
                     x: pos.x,
                     y: pos.y,
                     text: text,
-                    fontSize: fontSize
+                    fontSize: fontSize,
+                    layer: 1 // Default layer
                 });
             
                 saveToHistory();
@@ -1751,6 +1766,7 @@
                 document.getElementById('editIcon').value = point.icon;
                 document.getElementById('editLabel').value = point.label || '';
                 document.getElementById('editURL').value = point.url || '';
+                document.getElementById('editPointLayer').value = point.layer || 1;
                 document.getElementById('editPointModal').style.display = 'flex';
             }
             
@@ -1765,6 +1781,7 @@
                 editingPoint.icon = document.getElementById('editIcon').value.trim();
                 editingPoint.label = document.getElementById('editLabel').value.trim();
                 editingPoint.url = document.getElementById('editURL').value.trim();
+                editingPoint.layer = parseInt(document.getElementById('editPointLayer').value) || 1;
                 
                 // Reload the icon if changed
                 const iconKey = editingPoint.icon.toLowerCase().replace(/^fa-/, '').replace('fa-', '');
@@ -1798,6 +1815,7 @@
                 editingPathObject = path;
                 document.getElementById('editPathLabel').value = path.label || '';
                 document.getElementById('editPathURL').value = path.url || '';
+                document.getElementById('editPathLayer').value = path.layer || 1;
                 document.getElementById('editPathModal').style.display = 'flex';
             }
             
@@ -1811,6 +1829,7 @@
                 
                 editingPathObject.label = document.getElementById('editPathLabel').value.trim();
                 editingPathObject.url = document.getElementById('editPathURL').value.trim();
+                editingPathObject.layer = parseInt(document.getElementById('editPathLayer').value) || 1;
                 
                 closeEditPathModal();
                 saveToHistory();
@@ -1854,6 +1873,7 @@
                 editingTextLabel = label;
                 document.getElementById('editTextLabelText').value = label.text || '';
                 document.getElementById('editTextLabelSize').value = label.fontSize || 14;
+                document.getElementById('editTextLabelLayer').value = label.layer || 1;
                 document.getElementById('editTextLabelModal').style.display = 'flex';
             }
             
@@ -1867,6 +1887,7 @@
                 
                 editingTextLabel.text = document.getElementById('editTextLabelText').value.trim();
                 editingTextLabel.fontSize = parseInt(document.getElementById('editTextLabelSize').value) || 14;
+                editingTextLabel.layer = parseInt(document.getElementById('editTextLabelLayer').value) || 1;
                 
                 closeEditTextLabelModal();
                 saveToHistory();
@@ -1885,6 +1906,154 @@
                     saveToHistory();
                     redrawCanvas();
                 }
+            }
+            
+            // Layer management functions
+            let nextLayerId = 2; // Start from 2 since Default Layer is 1
+            
+            function isObjectVisible(obj) {
+                // If object has no layer, default to visible
+                if (!obj.layer) return true;
+                
+                const layer = mapData.layers.find(l => l.id === obj.layer);
+                return layer ? layer.visible : true;
+            }
+            
+            function renderLayersList() {
+                const layersList = document.getElementById('layersList');
+                layersList.innerHTML = '';
+                
+                mapData.layers.forEach(layer => {
+                    const layerItem = document.createElement('div');
+                    layerItem.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 8px; background: #ecf0f1; border-radius: 4px; margin-bottom: 5px;';
+                    
+                    const leftSection = document.createElement('div');
+                    leftSection.style.cssText = 'display: flex; align-items: center; gap: 8px; flex: 1;';
+                    
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.checked = layer.visible;
+                    checkbox.onchange = () => toggleLayerVisibility(layer.id);
+                    checkbox.style.cursor = 'pointer';
+                    
+                    const layerName = document.createElement('span');
+                    layerName.textContent = layer.name;
+                    layerName.style.cssText = 'font-size: 13px; color: #2c3e50;';
+                    
+                    leftSection.appendChild(checkbox);
+                    leftSection.appendChild(layerName);
+                    
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.textContent = '🗑️';
+                    deleteBtn.style.cssText = 'background: none; border: none; cursor: pointer; font-size: 14px; padding: 0; margin-left: 5px;';
+                    deleteBtn.title = 'Delete layer';
+                    deleteBtn.onclick = () => deleteLayer(layer.id);
+                    
+                    layerItem.appendChild(leftSection);
+                    if (layer.id !== 1) { // Don't allow deleting default layer
+                        layerItem.appendChild(deleteBtn);
+                    }
+                    
+                    layersList.appendChild(layerItem);
+                });
+                
+                // Update layer dropdowns in edit modals
+                updateLayerDropdowns();
+            }
+            
+            function updateLayerDropdowns() {
+                const dropdowns = [
+                    document.getElementById('editPathLayer'),
+                    document.getElementById('editPointLayer'),
+                    document.getElementById('editTextLabelLayer')
+                ];
+                
+                dropdowns.forEach(dropdown => {
+                    if (dropdown) {
+                        dropdown.innerHTML = '';
+                        mapData.layers.forEach(layer => {
+                            const option = document.createElement('option');
+                            option.value = layer.id;
+                            option.textContent = layer.name;
+                            dropdown.appendChild(option);
+                        });
+                    }
+                });
+            }
+            
+            function toggleLayerVisibility(layerId) {
+                const layer = mapData.layers.find(l => l.id === layerId);
+                if (layer) {
+                    layer.visible = !layer.visible;
+                    redrawCanvas();
+                }
+            }
+            
+            function openAddLayerDialog() {
+                document.getElementById('newLayerName').value = '';
+                document.getElementById('addLayerModal').style.display = 'flex';
+            }
+            
+            function closeAddLayerDialog() {
+                document.getElementById('addLayerModal').style.display = 'none';
+            }
+            
+            function addNewLayer() {
+                const name = document.getElementById('newLayerName').value.trim();
+                if (!name) {
+                    alert('Please enter a layer name');
+                    return;
+                }
+                
+                mapData.layers.push({
+                    id: nextLayerId++,
+                    name: name,
+                    visible: true
+                });
+                
+                renderLayersList();
+                closeAddLayerDialog();
+                saveToHistory();
+            }
+            
+            function deleteLayer(layerId) {
+                if (layerId === 1) {
+                    alert('Cannot delete the default layer');
+                    return;
+                }
+                
+                if (!confirm('Delete this layer? All objects in this layer will be moved to the Default Layer.')) {
+                    return;
+                }
+                
+                // Move all objects from this layer to default layer
+                const allObjects = [
+                    ...mapData.highways,
+                    ...mapData.roads,
+                    ...mapData.rivers,
+                    ...mapData.waterBodies,
+                    ...mapData.borders,
+                    ...mapData.customPoints,
+                    ...mapData.customPaths,
+                    ...mapData.customPolygons,
+                    ...mapData.textLabels
+                ];
+                
+                allObjects.forEach(obj => {
+                    if (obj.layer === layerId) {
+                        obj.layer = 1; // Move to default layer
+                    }
+                });
+                
+                // Remove the layer
+                const index = mapData.layers.findIndex(l => l.id === layerId);
+                if (index !== -1) {
+                    mapData.layers.splice(index, 1);
+                }
+                
+                renderLayersList();
+                saveToHistory();
+                redrawCanvas();
             }
 
             function calculatePathLength(points) {
@@ -2302,31 +2471,32 @@
     
                 drawGrid();
     
-                drawAllPolygons(mapData.waterBodies);
-                drawAllPaths(mapData.rivers, 'river');
-                drawAllPaths(mapData.roads, 'road');
-                drawAllPaths(mapData.highways, 'highway');
-                drawAllPolygons(mapData.borders, true);
+                // Filter objects by layer visibility
+                drawAllPolygons(mapData.waterBodies.filter(isObjectVisible));
+                drawAllPaths(mapData.rivers.filter(isObjectVisible), 'river');
+                drawAllPaths(mapData.roads.filter(isObjectVisible), 'road');
+                drawAllPaths(mapData.highways.filter(isObjectVisible), 'highway');
+                drawAllPolygons(mapData.borders.filter(isObjectVisible), true);
                 
                 // Draw custom paths
                 if (mapData.customPaths && mapData.customPaths.length > 0) {
-                    mapData.customPaths.forEach(path => {
+                    mapData.customPaths.filter(isObjectVisible).forEach(path => {
                         drawPath(path.points, path.type, false, false);
                     });
                 }
                 
                 // Draw custom polygons
                 if (mapData.customPolygons && mapData.customPolygons.length > 0) {
-                    mapData.customPolygons.forEach(polygon => {
+                    mapData.customPolygons.filter(isObjectVisible).forEach(polygon => {
                         drawPolygon(polygon.points, false, false, false, polygon.type);
                     });
                 }
     
-                mapData.cities.forEach(city => drawCity(city));
-                mapData.customPoints.forEach(point => drawCustomPoint(point));
+                mapData.cities.filter(isObjectVisible).forEach(city => drawCity(city));
+                mapData.customPoints.filter(isObjectVisible).forEach(point => drawCustomPoint(point));
                 
                 // Draw text labels
-                mapData.textLabels.forEach(label => drawTextLabel(label));
+                mapData.textLabels.filter(isObjectVisible).forEach(label => drawTextLabel(label));
     
                 if (isDrawingPath && currentPathPoints.length > 0) {
                     if (isPolygonType(currentTool)) {
@@ -3310,9 +3480,15 @@
                     Label:
                     <input type="text" id="editLabel" style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #bdc3c7; border-radius: 4px;">
                 </label>
-                <label style="display: block; margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 15px;">
                     URL:
                     <input type="text" id="editURL" style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #bdc3c7; border-radius: 4px;">
+                </label>
+                <label style="display: block; margin-bottom: 20px;">
+                    Layer:
+                    <select id="editPointLayer" style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #bdc3c7; border-radius: 4px;">
+                        <!-- Layers will be populated here -->
+                    </select>
                 </label>
                 <div style="display: flex; gap: 10px;">
                     <button onclick="savePointEdit()" style="flex: 1; padding: 10px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Save</button>
@@ -3330,9 +3506,15 @@
                     Label:
                     <input type="text" id="editPathLabel" style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #bdc3c7; border-radius: 4px;">
                 </label>
-                <label style="display: block; margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 15px;">
                     URL:
                     <input type="text" id="editPathURL" style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #bdc3c7; border-radius: 4px;">
+                </label>
+                <label style="display: block; margin-bottom: 20px;">
+                    Layer:
+                    <select id="editPathLayer" style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #bdc3c7; border-radius: 4px;">
+                        <!-- Layers will be populated here -->
+                    </select>
                 </label>
                 <div style="display: flex; gap: 10px;">
                     <button onclick="savePathEdit()" style="flex: 1; padding: 10px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Save</button>
@@ -3350,14 +3532,35 @@
                     Text:
                     <input type="text" id="editTextLabelText" style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #bdc3c7; border-radius: 4px;">
                 </label>
-                <label style="display: block; margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 15px;">
                     Font Size (px):
                     <input type="number" id="editTextLabelSize" style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #bdc3c7; border-radius: 4px;" min="8" max="72">
+                </label>
+                <label style="display: block; margin-bottom: 20px;">
+                    Layer:
+                    <select id="editTextLabelLayer" style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #bdc3c7; border-radius: 4px;">
+                        <!-- Layers will be populated here -->
+                    </select>
                 </label>
                 <div style="display: flex; gap: 10px;">
                     <button onclick="saveTextLabelEdit()" style="flex: 1; padding: 10px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Save</button>
                     <button onclick="deleteTextLabelFromModal()" style="flex: 1; padding: 10px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Delete</button>
                     <button onclick="closeEditTextLabelModal()" style="flex: 1; padding: 10px; background: #95a5a6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Cancel</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Add Layer Modal -->
+        <div id="addLayerModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+            <div style="background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); max-width: 400px; width: 90%;">
+                <h3 style="margin-top: 0; color: #2c3e50;">Add New Layer</h3>
+                <label style="display: block; margin-bottom: 20px;">
+                    Layer Name:
+                    <input type="text" id="newLayerName" style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #bdc3c7; border-radius: 4px;" placeholder="e.g. Roads, Buildings, etc.">
+                </label>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="addNewLayer()" style="flex: 1; padding: 10px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Add</button>
+                    <button onclick="closeAddLayerDialog()" style="flex: 1; padding: 10px; background: #95a5a6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Cancel</button>
                 </div>
             </div>
         </div>

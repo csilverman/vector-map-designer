@@ -431,6 +431,10 @@
                     Point Label (optional):
                     <input type="text" id="customLabel" placeholder="Enter label">
                 </label>
+                <label>
+                    URL (optional):
+                    <input type="text" id="customURL" placeholder="Enter URL">
+                </label>
                 
                 <button class="tool-btn" onclick="setTool('text-label', this)" style="background: #ecf0f1; color: #2c3e50; margin-top: 10px;">📝 Text Label</button>
                 <label>
@@ -2083,36 +2087,46 @@
             }
     
             function findPathAndSegmentAtPoint(pos, tolerance = 0.5) {
-                const allPaths = [
-                    ...mapData.borders.map(p => ({...p, collection: 'borders'})),
-                    ...mapData.highways.map(p => ({...p, collection: 'highways'})),
-                    ...mapData.roads.map(p => ({...p, collection: 'roads'})),
-                    ...mapData.rivers.map(p => ({...p, collection: 'rivers'})),
-                    ...mapData.waterBodies.map(p => ({...p, collection: 'waterBodies'})),
-                    ...(mapData.customPaths || []).map(p => ({...p, collection: 'customPaths'})),
-                    ...(mapData.customPolygons || []).map(p => ({...p, collection: 'customPolygons'}))
+                const collections = [
+                    { name: 'borders', paths: mapData.borders },
+                    { name: 'highways', paths: mapData.highways },
+                    { name: 'roads', paths: mapData.roads },
+                    { name: 'rivers', paths: mapData.rivers },
+                    { name: 'waterBodies', paths: mapData.waterBodies },
+                    { name: 'customPaths', paths: mapData.customPaths || [] },
+                    { name: 'customPolygons', paths: mapData.customPolygons || [] }
                 ].reverse();
     
-                for (const path of allPaths) {
-                    for (let i = 1; i < path.points.length; i++) {
-                        const dist = distanceToSegment(pos, path.points[i-1], path.points[i]);
-                        if (dist < tolerance) {
-                            return {
-                                path: path,
-                                segment: { start: i - 1, end: i },
-                                segmentLength: calculateSegmentLength(path.points[i-1], path.points[i])
-                            };
+                for (const collection of collections) {
+                    for (const path of collection.paths) {
+                        for (let i = 1; i < path.points.length; i++) {
+                            const dist = distanceToSegment(pos, path.points[i-1], path.points[i]);
+                            if (dist < tolerance) {
+                                // Store collection name on the path object if not already present
+                                if (!path.collection) {
+                                    path.collection = collection.name;
+                                }
+                                return {
+                                    path: path,
+                                    segment: { start: i - 1, end: i },
+                                    segmentLength: calculateSegmentLength(path.points[i-1], path.points[i])
+                                };
+                            }
                         }
-                    }
-                    
-                    if (isPolygonType(path.type)) {
-                        const dist = distanceToSegment(pos, path.points[path.points.length - 1], path.points[0]);
-                        if (dist < tolerance) {
-                            return {
-                                path: path,
-                                segment: { start: path.points.length - 1, end: 0 },
-                                segmentLength: calculateSegmentLength(path.points[path.points.length - 1], path.points[0])
-                            };
+                        
+                        if (isPolygonType(path.type)) {
+                            const dist = distanceToSegment(pos, path.points[path.points.length - 1], path.points[0]);
+                            if (dist < tolerance) {
+                                // Store collection name on the path object if not already present
+                                if (!path.collection) {
+                                    path.collection = collection.name;
+                                }
+                                return {
+                                    path: path,
+                                    segment: { start: path.points.length - 1, end: 0 },
+                                    segmentLength: calculateSegmentLength(path.points[path.points.length - 1], path.points[0])
+                                };
+                            }
                         }
                     }
                 }

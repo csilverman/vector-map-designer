@@ -1181,8 +1181,13 @@
             function handleWheel(e) {
                 e.preventDefault();
                 
-                // Increase zoom speed if Alt/Option key is held down
-                const zoomMultiplier = e.altKey ? 5 : 1;
+                // Increase zoom speed if Alt/Option and/or Shift keys are held down
+                let zoomMultiplier = 1;
+                if (e.altKey && e.shiftKey) {
+                    zoomMultiplier = 10;  // Even faster when both are held
+                } else if (e.altKey) {
+                    zoomMultiplier = 5;   // Fast with Alt/Option
+                }
                 const zoomChange = (e.deltaY < 0 ? 0.01 : -0.01) * zoomMultiplier;
                 const newZoom = Math.max(0.01, Math.min(50, zoomLevel + zoomChange));
                 
@@ -1796,18 +1801,30 @@
             function generateContourLines(outerPoints, spacing = 0.5) {
                 const contours = [];
                 let currentPoints = outerPoints;
+                let previousArea = calculatePolygonArea(currentPoints);
+                const maxIterations = 1000; // Safety limit to prevent infinite loops
+                let iterations = 0;
                 
                 // Keep generating inner contours until we can't shrink anymore
-                while (currentPoints.length >= 3) {
+                while (currentPoints.length >= 3 && iterations < maxIterations) {
+                    iterations++;
                     const innerPoints = shrinkPolygon(currentPoints, spacing);
                     
                     // Stop if the polygon got too small or invalid
-                    if (innerPoints.length < 3 || calculatePolygonArea(innerPoints) < spacing * spacing * 0.5) {
+                    if (innerPoints.length < 3) {
+                        break;
+                    }
+                    
+                    const newArea = calculatePolygonArea(innerPoints);
+                    
+                    // Stop if area is too small or didn't actually shrink
+                    if (newArea < spacing * spacing * 0.5 || newArea >= previousArea * 0.99) {
                         break;
                     }
                     
                     contours.push(innerPoints);
                     currentPoints = innerPoints;
+                    previousArea = newArea;
                 }
                 
                 return contours;
